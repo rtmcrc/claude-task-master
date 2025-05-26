@@ -306,6 +306,11 @@ async function runInteractiveSetup(projectRoot) {
 			{ name: '* Custom Vertex model', value: '__CUSTOM_VERTEX__' }
 		];
 
+		const customBedrockOption = {
+			name: '* Custom Bedrock model', // Add Bedrock custom option
+			value: '__CUSTOM_BEDROCK__'
+		};
+
 		let choices = [];
 		let defaultIndex = 0; // Default to 'Cancel'
 
