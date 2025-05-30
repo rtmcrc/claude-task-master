@@ -48,7 +48,8 @@ import {
 	AzureProvider,
 	VertexAIProvider,
 	ClaudeCodeProvider,
-	GeminiCliProvider
+	GeminiCliProvider,
+	RequestyAIProvider
 } from '../../src/ai-providers/index.js';
 
 // Create provider instances
@@ -64,7 +65,8 @@ const PROVIDERS = {
 	azure: new AzureProvider(),
 	vertex: new VertexAIProvider(),
 	'claude-code': new ClaudeCodeProvider(),
-	'gemini-cli': new GeminiCliProvider()
+	'gemini-cli': new GeminiCliProvider(),
+	requesty: new RequestyAIProvider()
 };
 
 // Helper function to get cost for a specific model
@@ -255,7 +257,8 @@ function _resolveApiKey(providerName, session, projectRoot = null) {
 		bedrock: 'AWS_ACCESS_KEY_ID',
 		vertex: 'GOOGLE_API_KEY',
 		'claude-code': 'CLAUDE_CODE_API_KEY', // Not actually used, but included for consistency
-		'gemini-cli': 'GEMINI_API_KEY'
+		'gemini-cli': 'GEMINI_API_KEY',
+		requesty: 'REQUESTY_API_KEY'
 	};
 
 	const envVarName = keyMap[providerName];
