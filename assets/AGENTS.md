@@ -91,7 +91,8 @@ Task Master provides an MCP server that Claude Code can connect to. Configure in
 				"OPENROUTER_API_KEY": "OPENROUTER_API_KEY_HERE",
 				"MISTRAL_API_KEY": "MISTRAL_API_KEY_HERE",
 				"AZURE_OPENAI_API_KEY": "AZURE_OPENAI_API_KEY_HERE",
-				"OLLAMA_API_KEY": "OLLAMA_API_KEY_HERE"
+				"OLLAMA_API_KEY": "OLLAMA_API_KEY_HERE",
+				"REQUESTY_API_KEY": "REQUESTY_API_KEY_HERE"
 			}
 		}
 	}

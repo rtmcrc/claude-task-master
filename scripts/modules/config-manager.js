@@ -450,7 +450,8 @@ function isApiKeySet(providerName, session = null, projectRoot = null) {
 		mistral: 'MISTRAL_API_KEY',
 		azure: 'AZURE_OPENAI_API_KEY',
 		openrouter: 'OPENROUTER_API_KEY',
-		xai: 'XAI_API_KEY'
+		xai: 'XAI_API_KEY',
+		requesty: 'REQUESTY_API_KEY'
 		// Add other providers as needed
 	};
 
@@ -541,6 +542,10 @@ function getMcpApiKeyStatus(providerName, projectRoot = null) {
 			case 'azure':
 				apiKeyToCheck = mcpEnv.AZURE_OPENAI_API_KEY;
 				placeholderValue = 'YOUR_AZURE_OPENAI_API_KEY_HERE';
+				break;
+			case 'requesty':
+				apiKeyToCheck = mcpEnv.REQUESTY_API_KEY;
+				placeholderValue = 'YOUR_REQUESTY_API_KEY_HERE';
 				break;
 			default:
 				return false; // Unknown provider

@@ -32,7 +32,8 @@ import {
 	XAIProvider,
 	OpenRouterAIProvider,
 	OllamaAIProvider,
-	BedrockAIProvider
+	BedrockAIProvider,
+	RequestyAIProvider
 } from '../../src/ai-providers/index.js';
 
 // Create provider instances
@@ -44,7 +45,8 @@ const PROVIDERS = {
 	xai: new XAIProvider(),
 	openrouter: new OpenRouterAIProvider(),
 	ollama: new OllamaAIProvider(),
-	bedrock: new BedrockAIProvider()
+	bedrock: new BedrockAIProvider(),
+	requesty: new RequestyAIProvider()
 };
 
 // Helper function to get cost for a specific model
@@ -162,7 +164,8 @@ function _resolveApiKey(providerName, session, projectRoot = null) {
 		openrouter: 'OPENROUTER_API_KEY',
 		xai: 'XAI_API_KEY',
 		ollama: 'OLLAMA_API_KEY',
-		bedrock: 'AWS_ACCESS_KEY_ID'
+		bedrock: 'AWS_ACCESS_KEY_ID',
+		requesty: 'REQUESTY_API_KEY'
 	};
 
 	const envVarName = keyMap[providerName];
