@@ -7,7 +7,7 @@
 ```bash
 # Project Setup
 task-master init                                    # Initialize Task Master in current project
-task-master parse-prd scripts/prd.txt             # Generate tasks from PRD document
+task-master parse-prd .taskmaster/docs/prd.txt      # Generate tasks from PRD document
 task-master models --setup                        # Configure AI models interactively
 
 # Daily Development Workflow
@@ -39,10 +39,10 @@ task-master generate                                         # Update task markd
 
 ### Core Files
 
-- `tasks/tasks.json` - Main task data file (auto-managed)
-- `.taskmasterconfig` - AI model configuration (use `task-master models` to modify)
-- `scripts/prd.txt` - Product Requirements Document for parsing
-- `tasks/*.txt` - Individual task files (auto-generated from tasks.json)
+- `.taskmaster/tasks/tasks.json` - Main task data file (auto-managed)
+- `.taskmaster/config.json` - AI model configuration (use `task-master models` to modify)
+- `.taskmaster/docs/prd.txt` - Product Requirements Document for parsing
+- `.taskmaster/tasks/*.txt` - Individual task files (auto-generated from tasks.json)
 - `.env` - API keys for CLI usage
 
 ### Claude Code Integration Files
@@ -136,7 +136,7 @@ complexity_report; // = task-master complexity-report
 task-master init
 
 # Create or obtain PRD, then parse it
-task-master parse-prd scripts/prd.txt
+task-master parse-prd .taskmaster/docs/prd.txt
 
 # Analyze complexity and expand tasks
 task-master analyze-complexity --research
@@ -209,14 +209,14 @@ Add to `.claude/settings.json`:
 
 ```json
 {
-	"allowedTools": [
-		"Edit",
-		"Bash(task-master *)",
-		"Bash(git commit:*)",
-		"Bash(git add:*)",
-		"Bash(npm run *)",
-		"mcp__task_master_ai__*"
-	]
+  "allowedTools": [
+    "Edit",
+    "Bash(task-master *)",
+    "Bash(git commit:*)",
+    "Bash(git add:*)",
+    "Bash(npm run *)",
+    "mcp__task_master_ai__*"
+  ]
 }
 ```
 
@@ -269,15 +269,15 @@ task-master models --set-fallback gpt-4o-mini
 
 ```json
 {
-	"id": "1.2",
-	"title": "Implement user authentication",
-	"description": "Set up JWT-based auth system",
-	"status": "pending",
-	"priority": "high",
-	"dependencies": ["1.1"],
-	"details": "Use bcrypt for hashing, JWT for tokens...",
-	"testStrategy": "Unit tests for auth functions, integration tests for login flow",
-	"subtasks": []
+  "id": "1.2",
+  "title": "Implement user authentication",
+  "description": "Set up JWT-based auth system",
+  "status": "pending",
+  "priority": "high",
+  "dependencies": ["1.1"],
+  "details": "Use bcrypt for hashing, JWT for tokens...",
+  "testStrategy": "Unit tests for auth functions, integration tests for login flow",
+  "subtasks": []
 }
 ```
 
