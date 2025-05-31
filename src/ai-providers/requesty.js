@@ -22,13 +22,15 @@ export class RequestyAIProvider extends BaseAIProvider {
 	 */
 	getClient(params) {
 		try {
-			const { apiKey, baseUrl } = params;
+			const { apiKey, baseURL } = params;
+
 			if (!apiKey) {
 				throw new Error('Requesty API key is required.');
 			}
+
 			return createRequesty({
 				apiKey,
-				...(baseUrl && { baseURL: baseUrl })
+				...(baseURL && { baseURL })
 			});
 		} catch (error) {
 			this.handleError('client initialization', error);

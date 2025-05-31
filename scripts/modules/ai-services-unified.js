@@ -19,9 +19,13 @@ import {
 	MODEL_MAP,
 	getDebugFlag,
 	getBaseUrlForRole,
-	isApiKeySet
+	isApiKeySet,
+	getOllamaBaseURL,
+	getAzureBaseURL,
+	getVertexProjectId,
+	getVertexLocation
 } from './config-manager.js';
-import { log, resolveEnvVariable, findProjectRoot } from './utils.js';
+import { log, findProjectRoot, resolveEnvVariable } from './utils.js';
 
 // Import provider classes
 import {
@@ -33,6 +37,8 @@ import {
 	OpenRouterAIProvider,
 	OllamaAIProvider,
 	BedrockAIProvider,
+	AzureProvider,
+	VertexAIProvider,
 	RequestyAIProvider
 } from '../../src/ai-providers/index.js';
 
@@ -46,6 +52,8 @@ const PROVIDERS = {
 	openrouter: new OpenRouterAIProvider(),
 	ollama: new OllamaAIProvider(),
 	bedrock: new BedrockAIProvider(),
+	azure: new AzureProvider(),
+	vertex: new VertexAIProvider(),
 	requesty: new RequestyAIProvider()
 };
 
@@ -165,6 +173,7 @@ function _resolveApiKey(providerName, session, projectRoot = null) {
 		xai: 'XAI_API_KEY',
 		ollama: 'OLLAMA_API_KEY',
 		bedrock: 'AWS_ACCESS_KEY_ID',
+		vertex: 'GOOGLE_API_KEY',
 		requesty: 'REQUESTY_API_KEY'
 	};
 
@@ -325,7 +334,7 @@ async function _unifiedServiceRunner(serviceType, params) {
 			apiKey,
 			roleParams,
 			provider,
-			baseUrl,
+			baseURL,
 			providerResponse,
 			telemetryData = null;
 
@@ -393,6 +402,20 @@ async function _unifiedServiceRunner(serviceType, params) {
 				}
 			}
 
+			// Get base URL if configured (optional for most providers)
+			baseURL = getBaseUrlForRole(currentRole, effectiveProjectRoot);
+
+			// For Azure, use the global Azure base URL if role-specific URL is not configured
+			if (providerName?.toLowerCase() === 'azure' && !baseURL) {
+				baseURL = getAzureBaseURL(effectiveProjectRoot);
+				log('debug', `Using global Azure base URL: ${baseURL}`);
+			} else if (providerName?.toLowerCase() === 'ollama' && !baseURL) {
+				// For Ollama, use the global Ollama base URL if role-specific URL is not configured
+				baseURL = getOllamaBaseURL(effectiveProjectRoot);
+				log('debug', `Using global Ollama base URL: ${baseURL}`);
+			}
+
+			// Get AI parameters for the current role
 			roleParams = getParametersForRole(currentRole, effectiveProjectRoot);
 			baseUrl = getBaseUrlForRole(currentRole, effectiveProjectRoot);
 			apiKey = _resolveApiKey(
@@ -400,6 +423,49 @@ async function _unifiedServiceRunner(serviceType, params) {
 				session,
 				effectiveProjectRoot
 			);
+
+			// Prepare provider-specific configuration
+			let providerSpecificParams = {};
+
+			// Handle Vertex AI specific configuration
+			if (providerName?.toLowerCase() === 'vertex') {
+				// Get Vertex project ID and location
+				const projectId =
+					getVertexProjectId(effectiveProjectRoot) ||
+					resolveEnvVariable(
+						'VERTEX_PROJECT_ID',
+						session,
+						effectiveProjectRoot
+					);
+
+				const location =
+					getVertexLocation(effectiveProjectRoot) ||
+					resolveEnvVariable(
+						'VERTEX_LOCATION',
+						session,
+						effectiveProjectRoot
+					) ||
+					'us-central1';
+
+				// Get credentials path if available
+				const credentialsPath = resolveEnvVariable(
+					'GOOGLE_APPLICATION_CREDENTIALS',
+					session,
+					effectiveProjectRoot
+				);
+
+				// Add Vertex-specific parameters
+				providerSpecificParams = {
+					projectId,
+					location,
+					...(credentialsPath && { credentials: { credentialsFromEnv: true } })
+				};
+
+				log(
+					'debug',
+					`Using Vertex AI configuration: Project ID=${projectId}, Location=${location}`
+				);
+			}
 
 			const messages = [];
 			if (systemPrompt) {
@@ -436,8 +502,9 @@ async function _unifiedServiceRunner(serviceType, params) {
 				maxTokens: roleParams.maxTokens,
 				temperature: roleParams.temperature,
 				messages,
-				baseUrl,
+				...(baseURL && { baseURL }),
 				...(serviceType === 'generateObject' && { schema, objectName }),
+				...providerSpecificParams,
 				...restApiParams
 			};
 
