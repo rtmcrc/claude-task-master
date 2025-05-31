@@ -161,7 +161,7 @@ async function runInteractiveSetup(projectRoot) {
 		});
 	}
 
-	// Helper function to fetch OpenRouter models (duplicated for CLI context)
+	// Helper function to fetch Requesty models (duplicated for CLI context)
 	function fetchRequestyModelsCLI() {
 		return new Promise((resolve) => {
 			const options = {
@@ -2483,12 +2483,13 @@ Examples:
 			const providerFlags = [
 				options.openrouter,
 				options.ollama,
-				options.bedrock
+				options.bedrock,
+				options.requesty
 			].filter(Boolean).length;
 			if (providerFlags > 1) {
 				console.error(
 					chalk.red(
-						'Error: Cannot use multiple provider flags (--openrouter, --ollama, --bedrock) simultaneously.'
+						'Error: Cannot use multiple provider flags (--openrouter, --ollama, --bedrock, --requesty) simultaneously.'
 					)
 				);
 				process.exit(1);
@@ -2530,7 +2531,9 @@ Examples:
 								? 'ollama'
 								: options.bedrock
 									? 'bedrock'
-									: undefined
+									: options.requesty
+										? 'requesty'
+										: undefined
 					});
 					if (result.success) {
 						console.log(chalk.green(`✅ ${result.data.message}`));
@@ -2552,7 +2555,9 @@ Examples:
 								? 'ollama'
 								: options.bedrock
 									? 'bedrock'
-									: undefined
+									: options.requesty
+										? 'requesty'
+										: undefined
 					});
 					if (result.success) {
 						console.log(chalk.green(`✅ ${result.data.message}`));
@@ -2576,7 +2581,9 @@ Examples:
 								? 'ollama'
 								: options.bedrock
 									? 'bedrock'
-									: undefined
+									: options.requesty
+										? 'requesty'
+										: undefined
 					});
 					if (result.success) {
 						console.log(chalk.green(`✅ ${result.data.message}`));
