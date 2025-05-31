@@ -217,7 +217,7 @@ async function runInteractiveSetup(projectRoot) {
 		});
 	}
 
-	// Helper function to fetch OpenRouter models (duplicated for CLI context)
+	// Helper function to fetch Requesty models (duplicated for CLI context)
 	function fetchRequestyModelsCLI() {
 		return new Promise((resolve) => {
 			const options = {
@@ -3552,7 +3552,7 @@ Examples:
 			if (providerFlags > 1) {
 				console.error(
 					chalk.red(
-						'Error: Cannot use multiple provider flags (--openrouter, --ollama, --bedrock, --claude-code, --gemini-cli) simultaneously.'
+						'Error: Cannot use multiple provider flags (--openrouter, --ollama, --bedrock, --claude-code, --gemini-cli, --requesty) simultaneously.'
 					)
 				);
 				process.exit(1);
