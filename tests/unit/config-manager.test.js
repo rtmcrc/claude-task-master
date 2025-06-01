@@ -265,6 +265,7 @@ describe('Validation Functions', () => {
 		expect(configManager.validateProvider('perplexity')).toBe(true);
 		expect(configManager.validateProvider('ollama')).toBe(true);
 		expect(configManager.validateProvider('openrouter')).toBe(true);
+		expect(configManager.validateProvider('requesty')).toBe(true);
 	});
 
 	test('validateProvider should return false for invalid providers', () => {
@@ -307,6 +308,9 @@ describe('Validation Functions', () => {
 		).toBe(false);
 		expect(
 			configManager.validateProviderModelCombination('openrouter', 'any/model')
+		).toBe(false);
+		expect(
+			configManager.validateProviderModelCombination('requesty', 'any/model')
 		).toBe(false);
 	});
 
@@ -380,7 +384,8 @@ describe('getConfig Tests', () => {
 						{ id: 'claude-3-5-sonnet' }
 					],
 					ollama: [],
-					openrouter: []
+					openrouter: [],
+					requesty: []
 				});
 			}
 			throw new Error(`Unexpected fs.readFileSync call: ${filePath}`);
@@ -427,7 +432,8 @@ describe('getConfig Tests', () => {
 						{ id: 'claude-3-5-sonnet' }
 					],
 					ollama: [],
-					openrouter: []
+					openrouter: [],
+					requesty: []
 				});
 			}
 			throw new Error(`Unexpected fs.readFileSync call: ${filePath}`);
@@ -462,7 +468,8 @@ describe('getConfig Tests', () => {
 					perplexity: [{ id: 'sonar-pro' }],
 					fallback: [{ id: 'claude-3-5-sonnet' }],
 					ollama: [],
-					openrouter: []
+					openrouter: [],
+					requesty: []
 				});
 			}
 			throw new Error(`Unexpected fs.readFileSync call: ${filePath}`);
@@ -492,7 +499,8 @@ describe('getConfig Tests', () => {
 					perplexity: [{ id: 'sonar-pro' }],
 					fallback: [{ id: 'claude-3-5-sonnet' }],
 					ollama: [],
-					openrouter: []
+					openrouter: [],
+					requesty: []
 				});
 			}
 			throw new Error(`Unexpected fs.readFileSync call: ${filePath}`);
@@ -523,7 +531,8 @@ describe('getConfig Tests', () => {
 						{ id: 'claude-3-5-sonnet' }
 					],
 					ollama: [],
-					openrouter: []
+					openrouter: [],
+					requesty: []
 				});
 			}
 			throw new Error(`Unexpected fs.readFileSync call: ${filePath}`);
@@ -635,7 +644,8 @@ describe('Getter Functions', () => {
 					],
 					perplexity: [{ id: 'sonar-pro' }],
 					ollama: [],
-					openrouter: []
+					openrouter: [],
+					requesty: []
 				}); // Added perplexity
 			}
 			throw new Error(`Unexpected fs.readFileSync call: ${filePath}`);
@@ -667,7 +677,8 @@ describe('Getter Functions', () => {
 					],
 					perplexity: [{ id: 'sonar-pro' }],
 					ollama: [],
-					openrouter: []
+					openrouter: [],
+					requesty: []
 				});
 			}
 			throw new Error(`Unexpected fs.readFileSync call: ${filePath}`);
