@@ -480,7 +480,8 @@ function getParametersForRole(role, explicitRoot = null) {
  */
 function isApiKeySet(providerName, session = null, projectRoot = null) {
 	// Define the expected environment variable name for each provider
-	if (providerName?.toLowerCase() === 'ollama') {
+	const lowerProviderName = providerName?.toLowerCase();
+	if (lowerProviderName === 'ollama' || lowerProviderName === 'extensionllm') {
 		return true; // Indicate key status is effectively "OK"
 	}
 
@@ -577,6 +578,8 @@ function getMcpApiKeyStatus(providerName, projectRoot = null) {
 				break;
 			case 'ollama':
 				return true; // No key needed
+			case 'extensionLlm': // Or 'extensionllm' if keys are consistently lowercased
+				return true; // No key needed for delegated provider
 			case 'mistral':
 				apiKeyToCheck = mcpEnv.MISTRAL_API_KEY;
 				placeholderValue = 'YOUR_MISTRAL_API_KEY_HERE';

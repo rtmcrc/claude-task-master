@@ -423,5 +423,15 @@
 			"allowed_roles": ["main", "fallback"],
 			"max_tokens": 32768
 		}
-	]
+	],
+    "extensionLlm": [
+        {
+            "id": "delegated-model",
+            "name": "Delegated to Extension",
+            "swe_score": null,
+            "cost_per_1m_tokens": null,
+            "allowed_roles": ["main", "research", "fallback"],
+            "max_tokens": null
+        }
+    ]
 }

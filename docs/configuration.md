@@ -13,15 +13,15 @@ Taskmaster uses two primary methods for configuration:
       {
         "models": {
           "main": {
-            "provider": "anthropic",
-            "modelId": "claude-3-7-sonnet-20250219",
+            "provider": "anthropic", // or "openai", "google", "extensionLlm", etc.
+            "modelId": "claude-3-7-sonnet-20250219", // for "extensionLlm", this might be "delegated-model" or ignored by the provider
             "maxTokens": 64000,
             "temperature": 0.2,
             "baseURL": "https://api.anthropic.com/v1"
           },
           "research": {
-            "provider": "perplexity",
-            "modelId": "sonar-pro",
+            "provider": "perplexity", // or "openai", "google", "extensionLlm", etc.
+            "modelId": "sonar-pro", // for "extensionLlm", this might be "delegated-model" or ignored by the provider
             "maxTokens": 8700,
             "temperature": 0.1,
             "baseURL": "https://api.perplexity.ai/v1"
@@ -72,6 +72,10 @@ Taskmaster uses two primary methods for configuration:
 - **Optional Endpoint Overrides:**
   - **Per-role `baseURL` in `.taskmasterconfig`:** You can add a `baseURL` property to any model role (`main`, `research`, `fallback`) to override the default API endpoint for that provider. If omitted, the provider's standard endpoint is used.
   - `AZURE_OPENAI_ENDPOINT`: Required if using Azure OpenAI key (can also be set as `baseURL` for the Azure model role).
+
+> **Note:** The `extensionLlm` provider does not require any of the above API keys to be set in Task Master's environment, as it relies on the calling extension's LLM connection.
+
+- **Optional Endpoint Overrides (Continued):**
   - `OLLAMA_BASE_URL`: Override the default Ollama API URL (Default: `http://localhost:11434/api`).
   - `VERTEX_PROJECT_ID`: Your Google Cloud project ID for Vertex AI. Required when using the 'vertex' provider.
   - `VERTEX_LOCATION`: Google Cloud region for Vertex AI (e.g., 'us-central1'). Default is 'us-central1'.
@@ -164,3 +168,12 @@ Google Vertex AI is Google Cloud's enterprise AI platform and requires specific 
      "vertexLocation": "us-central1"
    }
    ```
+
+### Extension Delegated LLM Provider (`extensionLlm`)
+
+The `extensionLlm` provider is a special provider that delegates LLM calls to the calling environment or extension (e.g., within an IDE that provides its own LLM connection).
+When `extensionLlm` is selected as the provider for a role (e.g., `main`, `research`, `fallback`):
+- Task Master will not make direct calls to an LLM API.
+- Instead, it will request the hosting extension to perform the LLM operation.
+- **No API key (like `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) needs to be configured in Task Master's `.env` or MCP `env` block for this provider.** The extension is responsible for its own LLM authentication.
+- The `modelId` specified in `.taskmaster/config.json` (e.g., `delegated-model`) will be passed to the extension, which then determines how to use it or which of its own configured models to use.
