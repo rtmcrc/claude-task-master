@@ -293,20 +293,108 @@ async function _unifiedServiceRunner(serviceType, params) {
 		objectName,
 		commandName,
 		outputType,
+		agentTextOutput, // New: For agent_driven mode
+		agentObjectOutput, // New: For agent_driven mode
+		agentUsageData, // New: For agent_driven mode
 		...restApiParams
 	} = params;
+
+	const MCP_AI_MODE = process.env.MCP_AI_MODE || 'direct';
+
 	if (getDebugFlag()) {
 		log('info', `${serviceType}Service called`, {
 			role: initialRole,
 			commandName,
 			outputType,
-			projectRoot
+			projectRoot,
+			MCP_AI_MODE
 		});
 	}
 
 	const effectiveProjectRoot = projectRoot || findProjectRoot();
 	const userId = getUserId(effectiveProjectRoot);
 
+	// Agent-driven mode handling
+	if (MCP_AI_MODE === 'agent_driven') {
+		log('info', `Running in agent_driven mode for ${serviceType}Service.`);
+		let agentResult;
+		let usageToLog = agentUsageData || {};
+
+		// Common parameters for logAiUsage in agent_driven mode
+		const agentLogParams = {
+			userId,
+			commandName,
+			providerName: 'agent',
+			modelId: 'agent_provided',
+			outputType,
+			inputTokens: usageToLog.inputTokens || 0,
+			outputTokens: usageToLog.outputTokens || 0
+		};
+
+		if (serviceType === 'generateText') {
+			if (!agentTextOutput) {
+				throw new Error(
+					"MCP_AI_MODE is agent_driven but agentTextOutput was not provided for generateTextService."
+				);
+			}
+			agentResult = { text: agentTextOutput, usage: usageToLog };
+		} else if (serviceType === 'generateObject') {
+			if (!agentObjectOutput) {
+				throw new Error(
+					"MCP_AI_MODE is agent_driven but agentObjectOutput was not provided for generateObjectService."
+				);
+			}
+			agentResult = { object: agentObjectOutput, usage: usageToLog };
+		} else if (serviceType === 'streamText') {
+			if (!agentTextOutput) {
+				throw new Error(
+					"MCP_AI_MODE is agent_driven but agentTextOutput was not provided for streamTextService."
+				);
+			}
+			// Create an async generator for the text stream
+			async function* generateAgentTextStream() {
+				// Yield the text in chunks (e.g., by lines or words, or all at once)
+				// For simplicity, yielding all at once for now.
+				yield agentTextOutput;
+			}
+			agentResult = {
+				textStream: generateAgentTextStream(),
+				usagePromise: Promise.resolve(usageToLog)
+				// Note: The Vercel SDK streamText returns a more complex object.
+				// We are returning a simpler version for agent_driven mode.
+				// The mainResult in the calling function will need to handle this structure.
+			};
+		} else {
+			throw new Error(`Unsupported serviceType for agent_driven mode: ${serviceType}`);
+		}
+
+		// Log telemetry if userId and commandName are available
+		let telemetryData = null;
+		if (userId && commandName) {
+			try {
+				telemetryData = await logAiUsage(agentLogParams);
+			} catch (telemetryError) {
+				// logAiUsage logs its own errors
+			}
+		} else {
+			log('warn', `Skipping telemetry for agent_driven mode: userId or commandName missing.`);
+		}
+
+		// The structure returned by _unifiedServiceRunner is { mainResult, telemetryData }
+		// So, we need to wrap agentResult accordingly.
+		if (serviceType === 'generateText') {
+			return { mainResult: agentResult.text, telemetryData: telemetryData, usage: agentResult.usage };
+		} else if (serviceType === 'generateObject') {
+			return { mainResult: agentResult.object, telemetryData: telemetryData, usage: agentResult.usage };
+		} else if (serviceType === 'streamText') {
+			// For streamText, the 'mainResult' is the composite object itself
+			return { mainResult: agentResult, telemetryData: telemetryData, usagePromise: agentResult.usagePromise };
+		}
+		// Fallback, though should be covered by serviceType checks above
+		return { mainResult: agentResult, telemetryData: telemetryData };
+	}
+
+	// Original logic for 'direct' mode starts here
 	let sequence;
 	if (initialRole === 'main') {
 		sequence = ['main', 'fallback', 'research'];
@@ -534,31 +622,44 @@ async function _unifiedServiceRunner(serviceType, params) {
 					// No need to log again here, telemetryData will remain null
 				}
 			} else if (userId && providerResponse && !providerResponse.usage) {
-				log(
-					'warn',
-					`Cannot log telemetry for ${commandName} (${providerName}/${modelId}): AI result missing 'usage' data. (May be expected for streams)`
-				);
+				// For streams, usage might come later or not at all from the provider response directly
+				if (serviceType !== 'streamText') {
+					log(
+						'warn',
+						`Cannot log telemetry for ${commandName} (${providerName}/${modelId}): AI result missing 'usage' data.`
+					);
+				}
 			}
 
-			let finalMainResult;
+			// Construct the return object based on service type
+			// The object returned by _unifiedServiceRunner should consistently have mainResult and telemetryData.
+			// Individual service functions (generateTextService, etc.) will then extract what they need.
+			let serviceRunnerResult = {
+				telemetryData: telemetryData,
+				// Include usage directly in the response for non-streaming services for direct access
+				...(providerResponse.usage && { usage: providerResponse.usage }),
+			};
+
 			if (serviceType === 'generateText') {
-				finalMainResult = providerResponse.text;
+				serviceRunnerResult.mainResult = providerResponse.text;
 			} else if (serviceType === 'generateObject') {
-				finalMainResult = providerResponse.object;
+				serviceRunnerResult.mainResult = providerResponse.object;
 			} else if (serviceType === 'streamText') {
-				finalMainResult = providerResponse;
+				// For streamText, providerResponse is the stream object itself (e.g., from Vercel SDK)
+				// It might include textStream, usagePromise, etc.
+				serviceRunnerResult.mainResult = providerResponse;
+				// If usagePromise is part of the stream response, propagate it
+				if (providerResponse.usagePromise) {
+					serviceRunnerResult.usagePromise = providerResponse.usagePromise;
+				}
 			} else {
 				log(
 					'error',
 					`Unknown serviceType in _unifiedServiceRunner: ${serviceType}`
 				);
-				finalMainResult = providerResponse;
+				serviceRunnerResult.mainResult = providerResponse; // Fallback
 			}
-
-			return {
-				mainResult: finalMainResult,
-				telemetryData: telemetryData
-			};
+			return serviceRunnerResult;
 		} catch (error) {
 			const cleanMessage = _extractErrorMessage(error);
 			log(
@@ -610,8 +711,11 @@ async function generateTextService(params) {
 	// Ensure default outputType if not provided
 	const defaults = { outputType: 'cli' };
 	const combinedParams = { ...defaults, ...params };
-	// TODO: Validate commandName exists?
-	return _unifiedServiceRunner('generateText', combinedParams);
+
+	const result = await _unifiedServiceRunner('generateText', combinedParams);
+	// In agent_driven mode, result = { mainResult: agentResult.text, telemetryData: telemetryData, usage: agentResult.usage }
+	// In direct mode, result = { mainResult: providerResponse.text, telemetryData, usage }
+	return { text: result.mainResult, usage: result.usage || {}, telemetryData: result.telemetryData };
 }
 
 /**
@@ -633,9 +737,25 @@ async function streamTextService(params) {
 	const combinedParams = { ...defaults, ...params };
 	// TODO: Validate commandName exists?
 	// NOTE: Telemetry for streaming might be tricky as usage data often comes at the end.
-	// The current implementation logs *after* the stream is returned.
-	// We might need to adjust how usage is captured/logged for streams.
-	return _unifiedServiceRunner('streamText', combinedParams);
+	// The current implementation logs *after* the stream is returned for direct mode.
+	// For agent_driven mode, usage is logged before returning.
+	const result = await _unifiedServiceRunner('streamText', combinedParams);
+	// In agent_driven mode, result.mainResult = { textStream, usagePromise }
+	// In direct mode, result.mainResult = Vercel SDK like stream object
+	// The streamTextService should return an object compatible with how it's used,
+	// typically an object with a stream and a way to get usage.
+	if (process.env.MCP_AI_MODE === 'agent_driven') {
+		return {
+			...result.mainResult, // contains textStream, usagePromise
+			telemetryData: result.telemetryData
+		};
+	}
+	// For direct mode, the result.mainResult is already the stream object from the provider
+	return {
+		...result.mainResult, // contains the stream (e.g., textStream) and potentially usagePromise
+		telemetryData: result.telemetryData,
+		...(result.usagePromise && { usagePromise: result.usagePromise })
+	};
 }
 
 /**
@@ -662,8 +782,10 @@ async function generateObjectService(params) {
 		outputType: 'cli'
 	};
 	const combinedParams = { ...defaults, ...params };
-	// TODO: Validate commandName exists?
-	return _unifiedServiceRunner('generateObject', combinedParams);
+	const result = await _unifiedServiceRunner('generateObject', combinedParams);
+	// In agent_driven mode, result = { mainResult: agentResult.object, telemetryData: telemetryData, usage: agentResult.usage }
+	// In direct mode, result = { mainResult: providerResponse.object, telemetryData, usage }
+	return { object: result.mainResult, usage: result.usage || {}, telemetryData: result.telemetryData };
 }
 
 // --- Telemetry Function ---

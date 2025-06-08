@@ -34,7 +34,9 @@ export async function parsePRDDirect(args, log, context = {}) {
 		force,
 		append,
 		research,
-		projectRoot
+		projectRoot,
+		agentObjectOutput, // New
+		agentUsageData // New
 	} = args;
 
 	// Create the standard logger wrapper
@@ -156,7 +158,9 @@ export async function parsePRDDirect(args, log, context = {}) {
 				append,
 				research,
 				commandName: 'parse-prd',
-				outputType: 'mcp'
+				outputType: 'mcp',
+				agentObjectOutput, // Pass down
+				agentUsageData // Pass down
 			},
 			'json'
 		);

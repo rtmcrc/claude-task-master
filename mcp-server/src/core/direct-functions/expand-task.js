@@ -33,8 +33,18 @@ import { createLogWrapper } from '../../tools/utils.js';
  */
 export async function expandTaskDirect(args, log, context = {}) {
 	const { session } = context; // Extract session
-	// Destructure expected args, including projectRoot
-	const { tasksJsonPath, id, num, research, prompt, force, projectRoot } = args;
+	// Destructure expected args, including projectRoot and new agent-driven params
+	const {
+		tasksJsonPath,
+		id,
+		num,
+		research,
+		prompt,
+		force,
+		projectRoot,
+		agentTextOutput, // New
+		agentUsageData // New
+	} = args;
 
 	// Log session root data for debugging
 	log.info(
@@ -198,7 +208,9 @@ export async function expandTaskDirect(args, log, context = {}) {
 					session,
 					projectRoot,
 					commandName: 'expand-task',
-					outputType: 'mcp'
+					outputType: 'mcp',
+					agentTextOutput, // Pass down to core function
+					agentUsageData // Pass down to core function
 				},
 				forceFlag
 			);

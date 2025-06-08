@@ -37,7 +37,9 @@ export async function analyzeTaskComplexityDirect(args, log, context = {}) {
 		projectRoot,
 		ids,
 		from,
-		to
+		to,
+		agentTextOutput, // New
+		agentUsageData // New
 	} = args;
 
 	const logWrapper = createLogWrapper(log);
@@ -112,7 +114,9 @@ export async function analyzeTaskComplexityDirect(args, log, context = {}) {
 				session,
 				mcpLog: logWrapper,
 				commandName: 'analyze-complexity',
-				outputType: 'mcp'
+				outputType: 'mcp',
+				agentTextOutput, // Pass down
+				agentUsageData // Pass down
 			});
 			report = coreResult.report;
 		} catch (error) {

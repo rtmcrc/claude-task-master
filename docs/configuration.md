@@ -77,6 +77,20 @@ Taskmaster uses two primary methods for configuration:
   - `VERTEX_LOCATION`: Google Cloud region for Vertex AI (e.g., 'us-central1'). Default is 'us-central1'.
   - `GOOGLE_APPLICATION_CREDENTIALS`: Path to service account credentials JSON file for Google Cloud auth (alternative to API key for Vertex AI).
 
+### AI Behavior Mode (`MCP_AI_MODE`)
+
+This environment variable controls how Taskmaster's AI services behave, particularly when integrated into larger systems where an external agent might provide AI outputs.
+
+-   **Purpose:** Allows `mcp-server` (and underlying Taskmaster functions) to use AI outputs provided by an external agent or process, instead of making direct calls to LLM providers.
+-   **Possible Values:**
+    -   `direct` (Default): This is the standard behavior. The server calls the configured LLM providers directly to generate text, objects, or stream text. If `MCP_AI_MODE` is unset, it defaults to `direct`.
+    -   `agent_driven`: In this mode, the server expects AI outputs (like generated text or structured objects) to be provided directly in the parameters of API calls or tool invocations. It will bypass making its own calls to LLM providers.
+-   **Setting the Variable:**
+    You can set this variable in your environment or in a `.env` file at your project root:
+    ```env
+    MCP_AI_MODE=agent_driven
+    ```
+
 **Important:** Settings like model ID selections (`main`, `research`, `fallback`), `maxTokens`, `temperature`, `logLevel`, `defaultSubtasks`, `defaultPriority`, and `projectName` are **managed in `.taskmaster/config.json`** (or `.taskmasterconfig` for unmigrated projects), not environment variables.
 
 ## Example `.env` File (for API Keys)
@@ -164,3 +178,72 @@ Google Vertex AI is Google Cloud's enterprise AI platform and requires specific 
      "vertexLocation": "us-central1"
    }
    ```
+
+## Using Agent-Driven Mode with Tools
+
+When `MCP_AI_MODE` is set to `agent_driven`, several tools and their corresponding API endpoints can accept pre-generated AI outputs. This is useful for scenarios where an external AI agent or a custom workflow prepares the AI-generated content, and Taskmaster is used to integrate this content into its task management and file generation processes.
+
+**General Pattern:**
+
+If `MCP_AI_MODE=agent_driven`, tools that normally invoke an AI service (like `generateTextService` or `generateObjectService`) will look for specific parameters in their input arguments. If these parameters are provided, the tool will use them directly instead of calling an AI model.
+
+**Key Parameters:**
+
+-   `agentTextOutput` (string): Pre-generated text output that would normally come from an LLM (e.g., for task expansion, analysis reasoning).
+-   `agentObjectOutput` (object): Pre-generated JSON object that would normally come from an LLM (e.g., for PRD parsing resulting in a task list).
+-   `agentUsageData` (object, optional): An object representing token usage data for the provided agent output. Example: `{ "inputTokens": 100, "outputTokens": 500 }`. This is used for telemetry.
+
+**Important Considerations:**
+
+-   These `agent...Output` parameters are **only processed if `MCP_AI_MODE` is set to `agent_driven`**. If the mode is `direct`, these parameters will be ignored.
+-   If `MCP_AI_MODE` is `agent_driven` and a tool expects AI-generated data but the relevant `agent...Output` parameter is *not* supplied, an error will occur. The system expects the agent to provide the necessary data in this mode.
+-   The structure of `agentTextOutput` or `agentObjectOutput` must match what the tool's internal parsing logic expects (i.e., it should be the same format the AI service would have returned).
+
+**Affected Tools and API Parameters:**
+
+The following tools (and their corresponding direct functions used by `mcp-server`) are refactored to support this mode:
+
+1.  **Expand Task (e.g., `expandTaskDirect`, API endpoint like `POST /api/expand-task`):**
+    *   Accepts: `agentTextOutput` (JSON string representing subtasks), `agentUsageData`.
+    *   Example API Body Snippet:
+        ```json
+        {
+          "tasksJsonPath": ".taskmaster/tasks.json",
+          "id": "1",
+          "projectRoot": "/path/to/project",
+          "agentTextOutput": "{\"subtasks\": [{\"id\": 1, \"title\": \"Subtask 1 from agent\", ...}]}",
+          "agentUsageData": { "inputTokens": 50, "outputTokens": 150 }
+        }
+        ```
+
+2.  **Analyze Task Complexity (e.g., `analyzeTaskComplexityDirect`, API endpoint like `POST /api/analyze-task-complexity`):**
+    *   Accepts: `agentTextOutput` (JSON string representing the complexity analysis array), `agentUsageData`.
+    *   Example API Body Snippet:
+        ```json
+        {
+          "tasksJsonPath": ".taskmaster/tasks.json",
+          "outputPath": ".taskmaster/reports/task-complexity-report.json",
+          "projectRoot": "/path/to/project",
+          "agentTextOutput": "[{\"taskId\": 1, \"complexityScore\": 7, ...}]",
+          "agentUsageData": { "inputTokens": 200, "outputTokens": 300 }
+        }
+        ```
+
+3.  **Parse PRD (e.g., `parsePRDDirect`, API endpoint like `POST /api/parse-prd`):**
+    *   Accepts: `agentObjectOutput` (a JavaScript object, typically parsed from JSON by the server, representing the structured tasks and metadata), `agentUsageData`.
+    *   Example API Body Snippet:
+        ```json
+        {
+          "input": ".taskmaster/docs/prd.txt",
+          "output": ".taskmaster/tasks.json",
+          "projectRoot": "/path/to/project",
+          "agentObjectOutput": {
+            "tasks": [{ "id": 1, "title": "Task from agent PRD parse", ... }],
+            "metadata": { ... }
+          },
+          "agentUsageData": { "inputTokens": 1000, "outputTokens": 800 }
+        }
+        ```
+
+**Note on API Endpoint Integration:**
+For the `agentTextOutput`, `agentObjectOutput`, and `agentUsageData` parameters to be usable via the HTTP API endpoints (e.g., `POST /api/expand-task`), the Zod schemas defined in the respective `mcp-server/src/tools/*.js` files must be updated to include these new optional fields. This documentation update assumes that development task will be handled separately. If you are calling the `direct-functions` programmatically (not via HTTP API), these parameters are available as described.

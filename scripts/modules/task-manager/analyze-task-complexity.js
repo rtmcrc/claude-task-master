@@ -67,7 +67,12 @@ Do not include any explanatory text, markdown formatting, or code block markers 
  * @param {function} [context.reportProgress] - Deprecated: Function to report progress (ignored)
  */
 async function analyzeTaskComplexity(options, context = {}) {
-	const { session, mcpLog } = context;
+	const {
+		session,
+		mcpLog,
+		agentTextOutput, // New
+		agentUsageData // New
+	} = context;
 	const tasksPath = options.file || LEGACY_TASKS_FILE;
 	const outputPath = options.output || COMPLEXITY_REPORT_FILE;
 	const thresholdScore = parseFloat(options.threshold || '5');
@@ -358,16 +363,40 @@ async function analyzeTaskComplexity(options, context = {}) {
 
 		try {
 			const role = useResearch ? 'research' : 'main';
+			const MCP_AI_MODE = process.env.MCP_AI_MODE || 'direct';
+			let paramsForAIService;
 
-			aiServiceResponse = await generateTextService({
-				prompt,
-				systemPrompt,
-				role,
-				session,
-				projectRoot,
-				commandName: 'analyze-complexity',
-				outputType: mcpLog ? 'mcp' : 'cli'
-			});
+			if (MCP_AI_MODE === 'agent_driven' && agentTextOutput) {
+				reportLog('Using agent_driven mode for analyzeTaskComplexity AI call.', 'info');
+				paramsForAIService = {
+					agentTextOutput,
+					agentUsageData,
+					role, // Still needed for context
+					session,
+					projectRoot,
+					commandName: 'analyze-complexity',
+					outputType: mcpLog ? 'mcp' : 'cli'
+				};
+			} else {
+				if (MCP_AI_MODE === 'agent_driven' && !agentTextOutput) {
+					reportLog(
+						'Agent_driven mode enabled but agentTextOutput not provided to analyzeTaskComplexity. Falling back or erroring in ai-services-unified.',
+						'warn'
+					);
+				}
+				reportLog('Using direct mode for analyzeTaskComplexity AI call.', 'info');
+				paramsForAIService = {
+					prompt,
+					systemPrompt,
+					role,
+					session,
+					projectRoot,
+					commandName: 'analyze-complexity',
+					outputType: mcpLog ? 'mcp' : 'cli'
+				};
+			}
+
+			aiServiceResponse = await generateTextService(paramsForAIService);
 
 			if (loadingIndicator) {
 				stopLoadingIndicator(loadingIndicator);
@@ -383,7 +412,8 @@ async function analyzeTaskComplexity(options, context = {}) {
 
 			reportLog(`Parsing complexity analysis from text response...`, 'info');
 			try {
-				let cleanedResponse = aiServiceResponse.mainResult;
+				// aiServiceResponse.text contains the main text output in both modes
+				let cleanedResponse = aiServiceResponse.text;
 				cleanedResponse = cleanedResponse.trim();
 
 				const codeBlockMatch = cleanedResponse.match(

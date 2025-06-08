@@ -413,7 +413,13 @@ async function expandTask(
 	context = {},
 	force = false
 ) {
-	const { session, mcpLog, projectRoot: contextProjectRoot } = context;
+	const {
+		session,
+		mcpLog,
+		projectRoot: contextProjectRoot,
+		agentTextOutput, // New: For agent_driven mode
+		agentUsageData // New: For agent_driven mode
+	} = context;
 	const outputFormat = mcpLog ? 'json' : 'text';
 
 	// Determine projectRoot: Use from context if available, otherwise derive from tasksPath
@@ -576,18 +582,47 @@ async function expandTask(
 
 		try {
 			const role = useResearch ? 'research' : 'main';
+			const MCP_AI_MODE = process.env.MCP_AI_MODE || 'direct';
+			let paramsForAIService;
+
+			if (MCP_AI_MODE === 'agent_driven' && agentTextOutput) {
+				logger.info('Using agent_driven mode for expandTask AI call.');
+				paramsForAIService = {
+					agentTextOutput,
+					agentUsageData,
+					role, // Still needed for context by ai-services-unified in agent mode
+					session,
+					projectRoot,
+					commandName: 'expand-task',
+					outputType: outputFormat
+				};
+			} else {
+				if (MCP_AI_MODE === 'agent_driven' && !agentTextOutput) {
+					logger.warn(
+						'Agent_driven mode enabled but agentTextOutput not provided to expandTask. Falling back to normal generation IF ALLOWED or erroring in ai-services-unified.'
+					);
+					// ai-services-unified will throw an error if agentTextOutput is missing in agent_driven mode.
+					// If we wanted to allow fallback, we'd remove the '&& agentTextOutput' above
+					// and ai-services-unified would need adjustment. Current setup is strict.
+				}
+				logger.info('Using direct mode for expandTask AI call.');
+				paramsForAIService = {
+					prompt: promptContent,
+					systemPrompt: systemPrompt,
+					role,
+					session,
+					projectRoot,
+					commandName: 'expand-task',
+					outputType: outputFormat
+				};
+			}
 
 			// Call generateTextService with the determined prompts and telemetry params
-			aiServiceResponse = await generateTextService({
-				prompt: promptContent,
-				systemPrompt: systemPrompt,
-				role,
-				session,
-				projectRoot,
-				commandName: 'expand-task',
-				outputType: outputFormat
-			});
-			responseText = aiServiceResponse.mainResult;
+			aiServiceResponse = await generateTextService(paramsForAIService);
+			// In agent_driven mode, aiServiceResponse.text is agentTextOutput.
+			// In direct mode, aiServiceResponse.text is the LLM response.
+			// The .text property is consistently available from the object returned by generateTextService.
+			responseText = aiServiceResponse.text;
 
 			// Parse Subtasks
 			generatedSubtasks = parseSubtasksFromText(

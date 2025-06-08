@@ -234,16 +234,33 @@ jest.unstable_mockModule('../../scripts/modules/utils.js', () => ({
 }));
 
 // Import the module to test (AFTER mocks)
-const { generateTextService } = await import(
-	'../../scripts/modules/ai-services-unified.js'
-);
+let generateTextService, generateObjectService, streamTextService, logAiUsage;
+
+const originalEnv = { ...process.env };
 
 describe('Unified AI Services', () => {
 	const fakeProjectRoot = '/fake/project/root'; // Define for reuse
 
+	beforeAll(async () => {
+		// Dynamically import the module ONCE after all mocks are set up at the top level
+		const module = await import('../../scripts/modules/ai-services-unified.js');
+		generateTextService = module.generateTextService;
+		generateObjectService = module.generateObjectService;
+		streamTextService = module.streamTextService;
+		logAiUsage = module.logAiUsage; // Assuming this is exported if we need to test it directly, though it's also mocked via utils
+	});
+
 	beforeEach(() => {
 		// Clear mocks before each test
 		jest.clearAllMocks(); // Clears all mocks
+
+		// Reset process.env to a copy of the original state before each test
+		process.env = { ...originalEnv };
+		// Important: Reset modules to ensure modules re-evaluate with the potentially changed process.env
+		// jest.resetModules(); // This might be too broad if module import is slow, let's see if specific re-import is needed or if top-level import + env override works.
+		// Forcing re-evaluation of the SUT might be needed if it caches process.env at import time.
+		// The dynamic import in beforeAll should mitigate some of this, but direct process.env manipulation needs care.
+
 
 		// Set default mock behaviors
 		mockGetMainProvider.mockReturnValue('anthropic');
@@ -642,7 +659,8 @@ describe('Unified AI Services', () => {
 			const result = await generateTextService(params);
 
 			// Should have gotten the Ollama response
-			expect(result.mainResult).toBe('Ollama response (no API key required)');
+		// generateTextService returns { text, usage, telemetryData }
+		expect(result.text).toBe('Ollama response (no API key required)');
 
 			// isApiKeySet shouldn't be called for Ollama
 			// Note: This is indirect - the code just doesn't check isApiKeySet for ollama
@@ -685,7 +703,166 @@ describe('Unified AI Services', () => {
 			);
 
 			// Should have gotten the anthropic response
-			expect(result.mainResult).toBe('Anthropic response with session key');
+		expect(result.text).toBe('Anthropic response with session key');
 		});
 	});
+
+	describe('Agent-Driven Mode', () => {
+		beforeEach(async () => {
+			// Set agent_driven mode for these tests
+			process.env.MCP_AI_MODE = 'agent_driven';
+			// Need to re-import or ensure the module re-evaluates process.env
+			// This is tricky with Jest's module caching.
+			// A common pattern is jest.resetModules() in the top-level beforeEach
+			// and then require/import inside the test or a describe-level beforeEach.
+			// For simplicity here, we'll assume the SUT reads process.env dynamically
+			// or the single beforeAll import handles it. If tests fail due to mode not
+			// being picked up, jest.resetModules() and local imports are the way.
+			const module = await import('../../scripts/modules/ai-services-unified.js');
+			generateTextService = module.generateTextService;
+			generateObjectService = module.generateObjectService;
+			streamTextService = module.streamTextService;
+		});
+
+		afterEach(() => {
+			// Restore original env settings or specific MCP_AI_MODE
+			delete process.env.MCP_AI_MODE;
+		});
+
+		describe('generateTextService (agent_driven)', () => {
+			test('should return agentTextOutput and agentUsageData if provided', async () => {
+				const params = {
+					agentTextOutput: 'Agent says hello',
+					agentUsageData: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+					role: 'main', // Still needed for some internal logic, even if not used for provider selection
+					commandName: 'test-command',
+					outputType: 'cli',
+					userId: 'agent-user'
+				};
+				const result = await generateTextService(params);
+				expect(result.text).toBe('Agent says hello');
+				expect(result.usage).toEqual({ inputTokens: 1, outputTokens: 1, totalTokens: 2 });
+				expect(mockLogAiUsage).toHaveBeenCalledWith({
+					userId: 'agent-user',
+					commandName: 'test-command',
+					providerName: 'agent',
+					modelId: 'agent_provided',
+					inputTokens: 1,
+					outputTokens: 1,
+					outputType: 'cli'
+				});
+				// Ensure no actual provider calls were made
+				expect(mockAnthropicProvider.generateText).not.toHaveBeenCalled();
+			});
+
+			test('should throw error if agentTextOutput is missing', async () => {
+				const params = {
+					agentUsageData: { inputTokens: 1, outputTokens: 1 },
+					role: 'main',
+					commandName: 'test-command'
+				};
+				await expect(generateTextService(params)).rejects.toThrow(
+					'MCP_AI_MODE is agent_driven but agentTextOutput was not provided for generateTextService.'
+				);
+				expect(mockLogAiUsage).not.toHaveBeenCalled(); // Should throw before logging
+			});
+		});
+
+		describe('generateObjectService (agent_driven)', () => {
+			test('should return agentObjectOutput and agentUsageData if provided', async () => {
+				const mockObject = { foo: 'bar', baz: 123 };
+				const params = {
+					agentObjectOutput: mockObject,
+					agentUsageData: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+					role: 'main',
+					commandName: 'test-object-command',
+					outputType: 'mcp',
+					userId: 'agent-object-user',
+					schema: {} // Mock schema, not used by agent_driven path but required by function signature
+				};
+				const result = await generateObjectService(params);
+				expect(result.object).toEqual(mockObject);
+				expect(result.usage).toEqual({ inputTokens: 2, outputTokens: 3, totalTokens: 5 });
+				expect(mockLogAiUsage).toHaveBeenCalledWith({
+					userId: 'agent-object-user',
+					commandName: 'test-object-command',
+					providerName: 'agent',
+					modelId: 'agent_provided',
+					inputTokens: 2,
+					outputTokens: 3,
+					outputType: 'mcp'
+				});
+				expect(mockAnthropicProvider.generateObject).not.toHaveBeenCalled();
+			});
+
+			test('should throw error if agentObjectOutput is missing', async () => {
+				const params = {
+					agentUsageData: { inputTokens: 1, outputTokens: 1 },
+					role: 'main',
+					commandName: 'test-object-command',
+					schema: {}
+				};
+				await expect(generateObjectService(params)).rejects.toThrow(
+					'MCP_AI_MODE is agent_driven but agentObjectOutput was not provided for generateObjectService.'
+				);
+			});
+		});
+
+		describe('streamTextService (agent_driven)', () => {
+			test('should return textStream and usagePromise from agent data', async () => {
+				const agentText = 'Agent streaming output';
+				const agentUsage = { streamInput: 10, streamOutput: 20 };
+				const params = {
+					agentTextOutput: agentText,
+					agentUsageData: agentUsage,
+					role: 'main',
+					commandName: 'test-stream-command',
+					outputType: 'cli',
+					userId: 'agent-stream-user'
+				};
+
+				const result = await streamTextService(params);
+
+				// Test the stream
+				let fullText = '';
+				for await (const chunk of result.textStream) {
+					fullText += chunk;
+				}
+				expect(fullText).toBe(agentText);
+
+				// Test the usage promise
+				const usage = await result.usagePromise;
+				expect(usage).toEqual(agentUsage);
+
+				expect(mockLogAiUsage).toHaveBeenCalledWith({
+					userId: 'agent-stream-user',
+					commandName: 'test-stream-command',
+					providerName: 'agent',
+					modelId: 'agent_provided',
+					inputTokens: agentUsage.streamInput || 0, // Assuming structure, adjust if needed
+					outputTokens: agentUsage.streamOutput || 0,
+					outputType: 'cli'
+				});
+				expect(mockAnthropicProvider.streamText).not.toHaveBeenCalled();
+			});
+
+			test('should throw error if agentTextOutput is missing for stream', async () => {
+				const params = {
+					agentUsageData: { inputTokens: 1, outputTokens: 1 },
+					role: 'main',
+					commandName: 'test-stream-command',
+				};
+				await expect(streamTextService(params)).rejects.toThrow(
+					'MCP_AI_MODE is agent_driven but agentTextOutput was not provided for streamTextService.'
+				);
+			});
+		});
+	});
+	// TODO: Add similar describe block for generateObjectService
+	// TODO: Add similar describe block for streamTextService if its agent_driven path is distinct enough
+});
+
+// Restore original process.env after all tests in this file
+afterAll(() => {
+	process.env = originalEnv;
 });

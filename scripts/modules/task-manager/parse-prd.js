@@ -65,7 +65,9 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 		projectRoot,
 		force = false,
 		append = false,
-		research = false
+		research = false,
+		agentObjectOutput, // New
+		agentUsageData // New
 	} = options;
 	const isMCP = !!mcpLog;
 	const outputFormat = isMCP ? 'json' : 'text';
@@ -228,17 +230,51 @@ Guidelines:
 		);
 
 		// Call generateObjectService with the CORRECT schema and additional telemetry params
-		aiServiceResponse = await generateObjectService({
-			role: research ? 'research' : 'main', // Use research role if flag is set
-			session: session,
-			projectRoot: projectRoot,
-			schema: prdResponseSchema,
-			objectName: 'tasks_data',
-			systemPrompt: systemPrompt,
-			prompt: userPrompt,
-			commandName: 'parse-prd',
-			outputType: isMCP ? 'mcp' : 'cli'
-		});
+		const MCP_AI_MODE = process.env.MCP_AI_MODE || 'direct';
+		let paramsForAIService;
+
+		if (MCP_AI_MODE === 'agent_driven' && agentObjectOutput) {
+			report(
+				`Using agent_driven mode for parsePRD AI call.${research ? ' Research mode active.' : ''}`,
+				'info'
+			);
+			paramsForAIService = {
+				agentObjectOutput,
+				agentUsageData,
+				role: research ? 'research' : 'main', // Still needed for context
+				session: session,
+				projectRoot: projectRoot,
+				schema: prdResponseSchema, // Schema is still useful for validation if ai-services does it
+				objectName: 'tasks_data',
+				commandName: 'parse-prd',
+				outputType: isMCP ? 'mcp' : 'cli'
+				// systemPrompt and prompt are omitted as agentObjectOutput is provided
+			};
+		} else {
+			if (MCP_AI_MODE === 'agent_driven' && !agentObjectOutput) {
+				report(
+					'Agent_driven mode enabled but agentObjectOutput not provided to parsePRD. Falling back or erroring in ai-services-unified.',
+					'warn'
+				);
+			}
+			report(
+				`Using direct mode for parsePRD AI call.${research ? ' Research mode active.' : ''}`,
+				'info'
+			);
+			paramsForAIService = {
+				role: research ? 'research' : 'main',
+				session: session,
+				projectRoot: projectRoot,
+				schema: prdResponseSchema,
+				objectName: 'tasks_data',
+				systemPrompt: systemPrompt,
+				prompt: userPrompt,
+				commandName: 'parse-prd',
+				outputType: isMCP ? 'mcp' : 'cli'
+			};
+		}
+
+		aiServiceResponse = await generateObjectService(paramsForAIService);
 
 		// Create the directory if it doesn't exist
 		const tasksDir = path.dirname(tasksPath);
@@ -250,31 +286,14 @@ Guidelines:
 		);
 
 		// Validate and Process Tasks
-		// const generatedData = aiServiceResponse?.mainResult?.object;
+		// generateObjectService now returns { object, usage, telemetryData }
+		// So, aiServiceResponse.object should contain the parsed data.
 
-		// Robustly get the actual AI-generated object
-		let generatedData = null;
-		if (aiServiceResponse?.mainResult) {
-			if (
-				typeof aiServiceResponse.mainResult === 'object' &&
-				aiServiceResponse.mainResult !== null &&
-				'tasks' in aiServiceResponse.mainResult
-			) {
-				// If mainResult itself is the object with a 'tasks' property
-				generatedData = aiServiceResponse.mainResult;
-			} else if (
-				typeof aiServiceResponse.mainResult.object === 'object' &&
-				aiServiceResponse.mainResult.object !== null &&
-				'tasks' in aiServiceResponse.mainResult.object
-			) {
-				// If mainResult.object is the object with a 'tasks' property
-				generatedData = aiServiceResponse.mainResult.object;
-			}
-		}
+		const generatedData = aiServiceResponse.object;
 
 		if (!generatedData || !Array.isArray(generatedData.tasks)) {
 			logFn.error(
-				`Internal Error: generateObjectService returned unexpected data structure: ${JSON.stringify(generatedData)}`
+				`Internal Error: generateObjectService returned unexpected data structure or undefined object: ${JSON.stringify(aiServiceResponse)}`
 			);
 			throw new Error(
 				'AI service returned unexpected data structure after validation.'
