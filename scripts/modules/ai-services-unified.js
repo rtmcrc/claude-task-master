@@ -3,8 +3,48 @@
  * Centralized AI service layer using provider modules and config-manager.
  */
 
+import crypto from 'crypto'; // For generating interactionId
+
 // Vercel AI SDK functions are NOT called directly anymore.
 // import { generateText, streamText, generateObject } from 'ai';
+
+// --- State Management for Delegated Interactions ---
+const pendingInteractions = new Map();
+const INTERACTION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Retrieves context for a pending interaction and checks its TTL.
+ * @param {string} interactionId - The ID of the interaction.
+ * @returns {object|null} The interaction context or null if not found or expired.
+ */
+function getInteractionContext(interactionId) {
+	const context = pendingInteractions.get(interactionId);
+	if (!context) {
+		log('warn', `Interaction context not found for ID: ${interactionId}`);
+		return null;
+	}
+	if ((Date.now() - context.timestamp) > INTERACTION_TTL_MS) {
+		log('warn', `Interaction context expired for ID: ${interactionId}`);
+		pendingInteractions.delete(interactionId); // Cleanup expired entry
+		return null;
+	}
+	return context;
+}
+
+// Optional: Function to periodically cleanup all expired interactions
+// function cleanupExpiredInteractions() {
+//   const now = Date.now();
+//   for (const [id, context] of pendingInteractions.entries()) {
+//     if ((now - context.timestamp) > INTERACTION_TTL_MS) {
+//       pendingInteractions.delete(id);
+//       log('info', `Cleaned up expired interaction ID: ${id}`);
+//     }
+//   }
+// }
+// Consider calling cleanupExpiredInteractions periodically if the map grows large,
+// e.g., via a setInterval in a server environment, or less frequently for CLI.
+// For now, on-access check in getInteractionContext is the primary mechanism.
+
 
 // --- Core Dependencies ---
 import {
@@ -293,13 +333,10 @@ async function _unifiedServiceRunner(serviceType, params) {
 		objectName,
 		commandName,
 		outputType,
-		agentTextOutput, // New: For agent_driven mode
-		agentObjectOutput, // New: For agent_driven mode
-		agentUsageData, // New: For agent_driven mode
+		delegationPhase, // New: 'initiate' or undefined
+		clientContext, // New: Pass-through client context
 		...restApiParams
 	} = params;
-
-	const MCP_AI_MODE = process.env.MCP_AI_MODE || 'direct';
 
 	if (getDebugFlag()) {
 		log('info', `${serviceType}Service called`, {
@@ -307,94 +344,127 @@ async function _unifiedServiceRunner(serviceType, params) {
 			commandName,
 			outputType,
 			projectRoot,
-			MCP_AI_MODE
+			delegationPhase
 		});
 	}
 
 	const effectiveProjectRoot = projectRoot || findProjectRoot();
-	const userId = getUserId(effectiveProjectRoot);
+	const userId = getUserId(effectiveProjectRoot); // Resolve userId early for context
 
-	// Agent-driven mode handling
-	if (MCP_AI_MODE === 'agent_driven') {
-		log('info', `Running in agent_driven mode for ${serviceType}Service.`);
-		let agentResult;
-		let usageToLog = agentUsageData || {};
+	// If delegationPhase is 'initiate', prepare and return context, then stop.
+	if (delegationPhase === 'initiate') {
+		// Provider and model selection logic is still needed to determine what an agent *would* have used.
+		// Or, this part could be simplified if the agent is fully responsible for provider choice.
+		// For now, let's assume we still determine a "target" provider/model for context.
+		// This means the role sequencing logic below is still relevant for Phase 1.
+		// However, we will NOT make an actual API call.
 
-		// Common parameters for logAiUsage in agent_driven mode
-		const agentLogParams = {
-			userId,
-			commandName,
-			providerName: 'agent',
-			modelId: 'agent_provided',
-			outputType,
-			inputTokens: usageToLog.inputTokens || 0,
-			outputTokens: usageToLog.outputTokens || 0
+		// The logic to determine providerName, modelId, roleParams, systemPrompt (if applicable)
+		// needs to run to be part of the aiServiceRequest.
+		// We'll pick the first valid provider in the sequence for the "intended" request.
+
+		let intendedProviderName, intendedModelId, intendedRoleParams, generatedSystemPrompt;
+		let currentRoleForInitiate = initialRole; // Start with the initial role
+
+		// Simplified sequence for 'initiate' - just find the first valid role configuration
+		const sequenceForInitiate = initialRole === 'main' ? ['main', 'research', 'fallback'] :
+		                       initialRole === 'research' ? ['research', 'main', 'fallback'] :
+		                       ['fallback', 'main', 'research'];
+
+		let foundValidConfigForInitiate = false;
+		for (const role of sequenceForInitiate) {
+			currentRoleForInitiate = role; // Keep track of the role whose config is used
+			if (role === 'main') {
+				intendedProviderName = getMainProvider(effectiveProjectRoot);
+				intendedModelId = getMainModelId(effectiveProjectRoot);
+			} else if (role === 'research') {
+				intendedProviderName = getResearchProvider(effectiveProjectRoot);
+				intendedModelId = getResearchModelId(effectiveProjectRoot);
+			} else { // fallback
+				intendedProviderName = getFallbackProvider(effectiveProjectRoot);
+				intendedModelId = getFallbackModelId(effectiveProjectRoot);
+			}
+
+			if (intendedProviderName && intendedModelId) {
+				intendedRoleParams = getParametersForRole(role, effectiveProjectRoot);
+				// Check if API key is set for this provider (unless it's ollama, etc.)
+				// This check might be optional for 'initiate' if the agent handles auth.
+				// For now, let's assume it's good practice to check if we *could* make a call.
+				const providerNeedsApiKey = !['ollama', 'bedrock'].includes(intendedProviderName?.toLowerCase());
+				if (providerNeedsApiKey && !isApiKeySet(intendedProviderName, session, effectiveProjectRoot)) {
+					log('warn', `Intended provider ${intendedProviderName} for role ${role} has no API key set. Skipping for 'initiate' phase.`);
+					continue; // Try next in sequence
+				}
+				foundValidConfigForInitiate = true;
+				break;
+			}
+		}
+
+		if (!foundValidConfigForInitiate) {
+			throw new Error(`Could not find a valid provider/model configuration for any role in sequence to initiate delegated call for role ${initialRole}.`);
+		}
+
+		// System prompt generation (specific to serviceType, might need to be more dynamic)
+		// This is a placeholder; actual system prompt generation might be more complex
+		// and might exist within the main _unifiedServiceRunner logic later.
+		// For now, we'll use what's passed in or a generic one.
+		generatedSystemPrompt = systemPrompt || `System prompt for ${serviceType} for model ${intendedModelId}`;
+		if (serviceType === 'generateObject' && schema) {
+			// This part is tricky. The original system prompt often incorporates schema details.
+			// For now, we pass the schema separately. The agent would need to construct its own full system prompt.
+			// Or, we pass the system prompt generated by the provider's logic if available.
+			// Let's assume `systemPrompt` passed in `params` is the one to use, or a generic one.
+		}
+
+
+		const interactionId = crypto.randomUUID();
+		const interactionContext = {
+			serviceType,
+			// For generateObject, store the Zod schema instance directly.
+			schemaToValidateWith: serviceType === 'generateObject' ? schema : undefined,
+			objectName: serviceType === 'generateObject' ? objectName : undefined,
+			originalRole: currentRoleForInitiate, // The role that was selected for this initiation
+			projectRoot: effectiveProjectRoot,
+			commandName, // from params
+			outputType,  // from params
+			userId,      // resolved earlier
+			timestamp: Date.now(),
+			// Storing the determined provider/model might be useful for context or later validation
+			intendedProviderName,
+			intendedModelId,
+			// Storing generatedSystemPrompt and userPrompt (params.prompt) in context might be useful for debugging phase 2
+			// but not strictly required by the current design for processing.
 		};
 
-		if (serviceType === 'generateText') {
-			if (!agentTextOutput) {
-				throw new Error(
-					"MCP_AI_MODE is agent_driven but agentTextOutput was not provided for generateTextService."
-				);
-			}
-			agentResult = { text: agentTextOutput, usage: usageToLog };
-		} else if (serviceType === 'generateObject') {
-			if (!agentObjectOutput) {
-				throw new Error(
-					"MCP_AI_MODE is agent_driven but agentObjectOutput was not provided for generateObjectService."
-				);
-			}
-			agentResult = { object: agentObjectOutput, usage: usageToLog };
-		} else if (serviceType === 'streamText') {
-			if (!agentTextOutput) {
-				throw new Error(
-					"MCP_AI_MODE is agent_driven but agentTextOutput was not provided for streamTextService."
-				);
-			}
-			// Create an async generator for the text stream
-			async function* generateAgentTextStream() {
-				// Yield the text in chunks (e.g., by lines or words, or all at once)
-				// For simplicity, yielding all at once for now.
-				yield agentTextOutput;
-			}
-			agentResult = {
-				textStream: generateAgentTextStream(),
-				usagePromise: Promise.resolve(usageToLog)
-				// Note: The Vercel SDK streamText returns a more complex object.
-				// We are returning a simpler version for agent_driven mode.
-				// The mainResult in the calling function will need to handle this structure.
-			};
-		} else {
-			throw new Error(`Unsupported serviceType for agent_driven mode: ${serviceType}`);
-		}
+		pendingInteractions.set(interactionId, interactionContext);
+		log('info', `Delegated interaction ${interactionId} initiated for service ${serviceType}. Context stored.`);
 
-		// Log telemetry if userId and commandName are available
-		let telemetryData = null;
-		if (userId && commandName) {
-			try {
-				telemetryData = await logAiUsage(agentLogParams);
-			} catch (telemetryError) {
-				// logAiUsage logs its own errors
-			}
-		} else {
-			log('warn', `Skipping telemetry for agent_driven mode: userId or commandName missing.`);
-		}
-
-		// The structure returned by _unifiedServiceRunner is { mainResult, telemetryData }
-		// So, we need to wrap agentResult accordingly.
-		if (serviceType === 'generateText') {
-			return { mainResult: agentResult.text, telemetryData: telemetryData, usage: agentResult.usage };
-		} else if (serviceType === 'generateObject') {
-			return { mainResult: agentResult.object, telemetryData: telemetryData, usage: agentResult.usage };
-		} else if (serviceType === 'streamText') {
-			// For streamText, the 'mainResult' is the composite object itself
-			return { mainResult: agentResult, telemetryData: telemetryData, usagePromise: agentResult.usagePromise };
-		}
-		// Fallback, though should be covered by serviceType checks above
-		return { mainResult: agentResult, telemetryData: telemetryData };
+		return {
+			interactionId: interactionId,
+			aiServiceRequest: {
+				serviceType: serviceType,
+				systemPrompt: generatedSystemPrompt, // The system prompt an agent might use
+				userPrompt: prompt,                 // The user prompt an agent receives
+				// Schema needs to be in a serializable format for the agent if it's not using JS/Zod directly.
+				// For now, we assume the agent gets the schema definition if it needs to reconstruct it.
+				// The Zod instance is in interactionContext for our phase 2.
+				schemaDefinition: serviceType === 'generateObject' && schema
+					? JSON.stringify(schema.description || schema._def || schema) // Best effort serialization
+					: undefined,
+				objectName: serviceType === 'generateObject' ? objectName : undefined,
+				// Include target model/provider info for the agent
+				targetModelInfo: {
+					provider: intendedProviderName,
+					modelId: intendedModelId,
+					maxTokens: intendedRoleParams?.maxTokens,
+					temperature: intendedRoleParams?.temperature,
+				}
+			},
+			clientContext: clientContext // Pass through any client context
+		};
 	}
 
-	// Original logic for 'direct' mode starts here
+	// --- Existing direct call logic starts here ---
 	let sequence;
 	if (initialRole === 'main') {
 		sequence = ['main', 'fallback', 'research'];
@@ -622,44 +692,31 @@ async function _unifiedServiceRunner(serviceType, params) {
 					// No need to log again here, telemetryData will remain null
 				}
 			} else if (userId && providerResponse && !providerResponse.usage) {
-				// For streams, usage might come later or not at all from the provider response directly
-				if (serviceType !== 'streamText') {
-					log(
-						'warn',
-						`Cannot log telemetry for ${commandName} (${providerName}/${modelId}): AI result missing 'usage' data.`
-					);
-				}
+				log(
+					'warn',
+					`Cannot log telemetry for ${commandName} (${providerName}/${modelId}): AI result missing 'usage' data. (May be expected for streams)`
+				);
 			}
 
-			// Construct the return object based on service type
-			// The object returned by _unifiedServiceRunner should consistently have mainResult and telemetryData.
-			// Individual service functions (generateTextService, etc.) will then extract what they need.
-			let serviceRunnerResult = {
-				telemetryData: telemetryData,
-				// Include usage directly in the response for non-streaming services for direct access
-				...(providerResponse.usage && { usage: providerResponse.usage }),
-			};
-
+			let finalMainResult;
 			if (serviceType === 'generateText') {
-				serviceRunnerResult.mainResult = providerResponse.text;
+				finalMainResult = providerResponse.text;
 			} else if (serviceType === 'generateObject') {
-				serviceRunnerResult.mainResult = providerResponse.object;
+				finalMainResult = providerResponse.object;
 			} else if (serviceType === 'streamText') {
-				// For streamText, providerResponse is the stream object itself (e.g., from Vercel SDK)
-				// It might include textStream, usagePromise, etc.
-				serviceRunnerResult.mainResult = providerResponse;
-				// If usagePromise is part of the stream response, propagate it
-				if (providerResponse.usagePromise) {
-					serviceRunnerResult.usagePromise = providerResponse.usagePromise;
-				}
+				finalMainResult = providerResponse;
 			} else {
 				log(
 					'error',
 					`Unknown serviceType in _unifiedServiceRunner: ${serviceType}`
 				);
-				serviceRunnerResult.mainResult = providerResponse; // Fallback
+				finalMainResult = providerResponse;
 			}
-			return serviceRunnerResult;
+
+			return {
+				mainResult: finalMainResult,
+				telemetryData: telemetryData
+			};
 		} catch (error) {
 			const cleanMessage = _extractErrorMessage(error);
 			log(
@@ -693,6 +750,94 @@ async function _unifiedServiceRunner(serviceType, params) {
 	throw new Error(lastCleanErrorMessage);
 }
 
+
+// --- Internal Phase 2 Processing Functions ---
+
+/**
+ * Processes a delegated raw LLM response for text generation.
+ * @param {string} interactionId - The interaction ID.
+ * @param {string} rawLLMResponse - The raw text response from the LLM.
+ * @param {object} llmUsageData - Usage data from the LLM call.
+ * @param {object} interactionContext - Stored context for this interaction.
+ * @returns {object} Result object { text: string }.
+ */
+function _processDelegatedTextInternal(interactionId, rawLLMResponse, llmUsageData, interactionContext) {
+	// Basic validation or transformation could happen here if needed
+	if (typeof rawLLMResponse !== 'string') {
+		log('warn', `Delegated text response for ${interactionId} is not a string.`);
+		// Depending on strictness, could throw error or try to coerce
+	}
+	return { text: rawLLMResponse };
+}
+
+/**
+ * Processes a delegated raw LLM response for object generation.
+ * @param {string} interactionId - The interaction ID.
+ * @param {string | object} rawLLMResponse - The raw response from the LLM (string or pre-parsed object).
+ * @param {object} llmUsageData - Usage data from the LLM call.
+ * @param {object} interactionContext - Stored context for this interaction.
+ * @returns {object} Result object { object: object }.
+ * @throws {Error} If parsing or validation fails.
+ */
+function _processDelegatedObjectInternal(interactionId, rawLLMResponse, llmUsageData, interactionContext) {
+	log('debug', `Processing delegated object for interaction ${interactionId}. Raw type: ${typeof rawLLMResponse}`);
+
+	if (!interactionContext.schemaToValidateWith) {
+		log('error', `No schema found in interactionContext for ${interactionId}. Cannot validate.`);
+		throw new Error(`Missing schema for validation in interaction ${interactionId}.`);
+	}
+
+	let parsedObject;
+	if (typeof rawLLMResponse === 'string') {
+		try {
+			parsedObject = JSON.parse(rawLLMResponse);
+		} catch (e) {
+			log('error', `Failed to parse rawLLMResponse string for ${interactionId}: ${e.message}`);
+			throw new Error(`Invalid JSON response from delegated LLM: ${e.message}`);
+		}
+	} else if (typeof rawLLMResponse === 'object' && rawLLMResponse !== null) {
+		parsedObject = rawLLMResponse;
+	} else {
+		log('error', `rawLLMResponse for ${interactionId} is not a string or object.`);
+		throw new Error('Invalid format for rawLLMResponse in delegated object processing.');
+	}
+
+	const validationResult = interactionContext.schemaToValidateWith.safeParse(parsedObject);
+
+	if (!validationResult.success) {
+		log('error', `Delegated object validation failed for ${interactionId}: ${validationResult.error.toString()}`);
+		// Consider logging validationResult.error.issues for more detail
+		throw new Error(`Delegated LLM response failed schema validation: ${validationResult.error.toString()}`);
+	}
+
+	return { object: validationResult.data };
+}
+
+/**
+ * Processes a delegated raw LLM response for text streaming.
+ * @param {string} interactionId - The interaction ID.
+ * @param {string} rawLLMResponse - The full raw text response from the LLM (to be streamed).
+ * @param {object} llmUsageData - Usage data from the LLM call.
+ * @param {object} interactionContext - Stored context for this interaction.
+ * @returns {object} Result object { textStream: AsyncGenerator<string> }.
+ */
+function _processDelegatedStreamInternal(interactionId, rawLLMResponse, llmUsageData, interactionContext) {
+	async function* generateStream() {
+		// Simple stream: yield the whole response as one chunk.
+		// More sophisticated chunking (by lines, words, etc.) could be added here.
+		if (typeof rawLLMResponse === 'string') {
+			yield rawLLMResponse;
+		} else {
+			log('warn', `Delegated stream response for ${interactionId} is not a string. Stream will be empty.`);
+			// yield ''; // Or throw error
+		}
+	}
+	return { textStream: generateStream() };
+}
+
+
+// --- Public Service Functions ---
+
 /**
  * Unified service function for generating text.
  * Handles client retrieval, retries, and fallback sequence.
@@ -711,11 +856,8 @@ async function generateTextService(params) {
 	// Ensure default outputType if not provided
 	const defaults = { outputType: 'cli' };
 	const combinedParams = { ...defaults, ...params };
-
-	const result = await _unifiedServiceRunner('generateText', combinedParams);
-	// In agent_driven mode, result = { mainResult: agentResult.text, telemetryData: telemetryData, usage: agentResult.usage }
-	// In direct mode, result = { mainResult: providerResponse.text, telemetryData, usage }
-	return { text: result.mainResult, usage: result.usage || {}, telemetryData: result.telemetryData };
+	// TODO: Validate commandName exists?
+	return _unifiedServiceRunner('generateText', combinedParams);
 }
 
 /**
@@ -737,25 +879,9 @@ async function streamTextService(params) {
 	const combinedParams = { ...defaults, ...params };
 	// TODO: Validate commandName exists?
 	// NOTE: Telemetry for streaming might be tricky as usage data often comes at the end.
-	// The current implementation logs *after* the stream is returned for direct mode.
-	// For agent_driven mode, usage is logged before returning.
-	const result = await _unifiedServiceRunner('streamText', combinedParams);
-	// In agent_driven mode, result.mainResult = { textStream, usagePromise }
-	// In direct mode, result.mainResult = Vercel SDK like stream object
-	// The streamTextService should return an object compatible with how it's used,
-	// typically an object with a stream and a way to get usage.
-	if (process.env.MCP_AI_MODE === 'agent_driven') {
-		return {
-			...result.mainResult, // contains textStream, usagePromise
-			telemetryData: result.telemetryData
-		};
-	}
-	// For direct mode, the result.mainResult is already the stream object from the provider
-	return {
-		...result.mainResult, // contains the stream (e.g., textStream) and potentially usagePromise
-		telemetryData: result.telemetryData,
-		...(result.usagePromise && { usagePromise: result.usagePromise })
-	};
+	// The current implementation logs *after* the stream is returned.
+	// We might need to adjust how usage is captured/logged for streams.
+	return _unifiedServiceRunner('streamText', combinedParams);
 }
 
 /**
@@ -782,10 +908,8 @@ async function generateObjectService(params) {
 		outputType: 'cli'
 	};
 	const combinedParams = { ...defaults, ...params };
-	const result = await _unifiedServiceRunner('generateObject', combinedParams);
-	// In agent_driven mode, result = { mainResult: agentResult.object, telemetryData: telemetryData, usage: agentResult.usage }
-	// In direct mode, result = { mainResult: providerResponse.object, telemetryData, usage }
-	return { object: result.mainResult, usage: result.usage || {}, telemetryData: result.telemetryData };
+	// TODO: Validate commandName exists?
+	return _unifiedServiceRunner('generateObject', combinedParams);
 }
 
 // --- Telemetry Function ---
@@ -857,5 +981,9 @@ export {
 	generateTextService,
 	streamTextService,
 	generateObjectService,
-	logAiUsage
+	logAiUsage,
+	// --- New Phase 2 Submission Functions ---
+	submitDelegatedTextResponseService,
+	submitDelegatedObjectResponseService,
+	submitDelegatedStreamResponseService
 };

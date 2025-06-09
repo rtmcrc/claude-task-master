@@ -11,7 +11,11 @@ import {
 	createErrorResponse,
 	withNormalizedProjectRoot
 } from './utils.js';
-import { analyzeTaskComplexityDirect } from '../core/task-master-core.js'; // Assuming core functions are exported via task-master-core.js
+import {
+	analyzeTaskComplexityDirect,
+	initiateAnalyzeTaskComplexityDirect,
+	submitAnalyzeTaskComplexityResponseDirect
+} from '../core/task-master-core.js';
 import { findTasksPath } from '../core/utils/path-utils.js';
 import { COMPLEXITY_REPORT_FILE } from '../../../src/constants/paths.js';
 
@@ -73,76 +77,97 @@ export function registerAnalyzeProjectComplexityTool(server) {
 				.describe('The directory of the project. Must be an absolute path.')
 		}),
 		execute: withNormalizedProjectRoot(async (args, { log, session }) => {
-			const toolName = 'analyze_project_complexity'; // Define tool name for logging
+			const toolName = 'analyze_project_complexity';
 			try {
-				log.info(
-					`Executing ${toolName} tool with args: ${JSON.stringify(args)}`
-				);
-
+				log.info(`Executing ${toolName} tool with args: ${JSON.stringify(args)}`);
 				let tasksJsonPath;
 				try {
-					tasksJsonPath = findTasksPath(
-						{ projectRoot: args.projectRoot, file: args.file },
-						log
-					);
-					log.info(`${toolName}: Resolved tasks path: ${tasksJsonPath}`);
+					tasksJsonPath = findTasksPath({ projectRoot: args.projectRoot, file: args.file }, log);
 				} catch (error) {
-					log.error(`${toolName}: Error finding tasks.json: ${error.message}`);
-					return createErrorResponse(
-						`Failed to find tasks.json within project root '${args.projectRoot}': ${error.message}`
-					);
+					return createErrorResponse(`Failed to find tasks.json: ${error.message}`);
 				}
-
-				const outputPath = args.output
-					? path.resolve(args.projectRoot, args.output)
-					: path.resolve(args.projectRoot, COMPLEXITY_REPORT_FILE);
-
-				log.info(`${toolName}: Report output path: ${outputPath}`);
-
-				// Ensure output directory exists
+				const outputPath = args.output ? path.resolve(args.projectRoot, args.output) : path.resolve(args.projectRoot, COMPLEXITY_REPORT_FILE);
 				const outputDir = path.dirname(outputPath);
-				try {
-					if (!fs.existsSync(outputDir)) {
-						fs.mkdirSync(outputDir, { recursive: true });
-						log.info(`${toolName}: Created output directory: ${outputDir}`);
-					}
-				} catch (dirError) {
-					log.error(
-						`${toolName}: Failed to create output directory ${outputDir}: ${dirError.message}`
-					);
-					return createErrorResponse(
-						`Failed to create output directory: ${dirError.message}`
-					);
-				}
+				if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
-				// 3. Call Direct Function - Pass projectRoot in first arg object
-				const result = await analyzeTaskComplexityDirect(
-					{
-						tasksJsonPath: tasksJsonPath,
-						outputPath: outputPath,
-						threshold: args.threshold,
-						research: args.research,
-						projectRoot: args.projectRoot,
-						ids: args.ids,
-						from: args.from,
-						to: args.to
-					},
-					log,
-					{ session }
-				);
-
-				// 4. Handle Result
-				log.info(
-					`${toolName}: Direct function result: success=${result.success}`
-				);
+				const directArgs = { ...args, tasksJsonPath, outputPath };
+				const result = await analyzeTaskComplexityDirect(directArgs, log, { session });
 				return handleApiResult(result, log, 'Error analyzing task complexity');
 			} catch (error) {
-				log.error(
-					`Critical error in ${toolName} tool execute: ${error.message}`
-				);
-				return createErrorResponse(
-					`Internal tool error (${toolName}): ${error.message}`
-				);
+				return createErrorResponse(`Internal tool error (${toolName}): ${error.message}`);
+			}
+		})
+	});
+
+	server.addTool({
+		name: 'initiateDelegatedAnalyzeTaskComplexity',
+		description: 'Initiates a delegated task complexity analysis. Returns prompts and an interaction ID.',
+		parameters: z.object({
+			projectRoot: z.string().describe("Absolute path to the project."),
+			file: z.string().optional().describe("Path to the tasks file relative to project root."),
+			ids: z.string().optional().describe("Comma-separated list of task IDs to analyze."),
+			from: z.coerce.number().int().positive().optional().describe("Starting task ID in a range."),
+			to: z.coerce.number().int().positive().optional().describe("Ending task ID in a range."),
+			research: z.boolean().optional().default(false).describe("Use research role for analysis."),
+			clientContext: z.any().optional().describe("Optional client context to be echoed.")
+		}),
+		execute: withNormalizedProjectRoot(async (args, { log, session }) => {
+			const toolName = 'initiateDelegatedAnalyzeTaskComplexity';
+			try {
+				let tasksJsonPath;
+				try {
+					tasksJsonPath = findTasksPath({ projectRoot: args.projectRoot, file: args.file }, log);
+				} catch (error) {
+					return createErrorResponse(`Failed to find tasks.json: ${error.message}`);
+				}
+				const directArgs = { ...args, tasksJsonPath };
+				const result = await initiateAnalyzeTaskComplexityDirect(directArgs, log, { session });
+				return handleApiResult(result, log, 'Error initiating complexity analysis');
+			} catch (error) {
+				return createErrorResponse(`Internal tool error (${toolName}): ${error.message}`);
+			}
+		})
+	});
+
+	server.addTool({
+		name: 'submitDelegatedAnalyzeTaskComplexityResponse',
+		description: 'Submits the raw LLM response for a delegated task complexity analysis.',
+		parameters: z.object({
+			interactionId: z.string().describe("The interaction ID from the initiate call."),
+			rawLLMResponse: z.string().describe("The raw JSON string response from the LLM."),
+			llmUsageData: z.object({
+				inputTokens: z.number().int().optional(),
+				outputTokens: z.number().int().optional()
+			}).optional().describe("Optional token usage data."),
+			projectRoot: z.string().describe("Absolute path to the project."),
+			tasksJsonPath: z.string().optional().describe("Path to the tasks.json file (for context)."), // Added, as direct fn needs it
+			outputPath: z.string().optional().describe(`Path to save the complexity report. Default: ${COMPLEXITY_REPORT_FILE}`),
+			threshold: z.coerce.number().int().min(1).max(10).optional().default(5).describe("Complexity threshold for the report.")
+		}),
+		execute: withNormalizedProjectRoot(async (args, { log, session }) => {
+			const toolName = 'submitDelegatedAnalyzeTaskComplexityResponse';
+			try {
+				let tasksJsonPath; // tasksJsonPath is needed by submitAnalyzeTaskComplexityResponseDirect
+				try {
+					tasksJsonPath = findTasksPath({ projectRoot: args.projectRoot, file: args.tasksJsonPath }, log);
+				} catch (error) {
+					// If not provided, it might be optional if the core function can work without it using stored context,
+					// but direct function currently requires it.
+					return createErrorResponse(`Failed to determine tasks.json path: ${error.message}. 'tasksJsonPath' might be required.`);
+				}
+
+				const outputPath = args.outputPath
+					? path.resolve(args.projectRoot, args.outputPath)
+					: path.resolve(args.projectRoot, COMPLEXITY_REPORT_FILE);
+
+				const outputDir = path.dirname(outputPath);
+				if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+
+				const directArgs = { ...args, tasksJsonPath, outputPath };
+				const result = await submitAnalyzeTaskComplexityResponseDirect(directArgs, log, { session });
+				return handleApiResult(result, log, 'Error submitting complexity analysis response');
+			} catch (error) {
+				return createErrorResponse(`Internal tool error (${toolName}): ${error.message}`);
 			}
 		})
 	});

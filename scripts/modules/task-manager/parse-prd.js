@@ -14,7 +14,11 @@ import {
 	findTaskById
 } from '../utils.js';
 
-import { generateObjectService } from '../ai-services-unified.js';
+// Import necessary functions from ai-services-unified.js
+import {
+	generateObjectService,
+	submitDelegatedObjectResponseService
+} from '../ai-services-unified.js';
 import { getDebugFlag } from '../config-manager.js';
 import generateTaskFiles from './generate-task-files.js';
 import { displayAiUsageSummary } from '../ui.js';
@@ -56,19 +60,35 @@ const prdResponseSchema = z.object({
  * @param {Object} [options.session] - Session object from MCP server (optional).
  * @param {string} [options.projectRoot] - Project root path (for MCP/env fallback).
  * @param {string} [outputFormat='text'] - Output format ('text' or 'json').
+ * @param {object} [context={}] - Context object for delegation.
+ * @param {string} [context.delegationPhase] - 'initiate' or 'submit'.
+ * @param {string} [context.interactionId] - ID for 'submit' phase.
+ * @param {string | object} [context.rawLLMResponse] - LLM response for 'submit' phase.
+ * @param {object} [context.llmUsageData] - Usage data for 'submit' phase.
+ * @param {object} [context.clientContext] - Client context for 'initiate' phase.
  */
-async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
+async function parsePRD(prdPath, tasksPath, numTasks, options = {}, context = {}) {
 	const {
-		reportProgress,
-		mcpLog,
-		session,
-		projectRoot,
+		// Options related to how parsePRD operates
 		force = false,
 		append = false,
 		research = false,
-		agentObjectOutput, // New
-		agentUsageData // New
+		projectRoot, // projectRoot is crucial, ensure it's from options or derived
+		// mcpLog and session are also from options if passed by direct function
+		mcpLog,
+		session,
+		clientContext // Pass through client context if initiating
 	} = options;
+
+	// Context for delegation phases
+	const {
+		delegationPhase,
+		interactionId,
+		rawLLMResponse,
+		llmUsageData
+	} = context;
+
+
 	const isMCP = !!mcpLog;
 	const outputFormat = isMCP ? 'json' : 'text';
 
@@ -229,39 +249,52 @@ Guidelines:
 			'info'
 		);
 
-		// Call generateObjectService with the CORRECT schema and additional telemetry params
-		const MCP_AI_MODE = process.env.MCP_AI_MODE || 'direct';
-		let paramsForAIService;
+		// Call the unified AI service
+		report(
+			`AI interaction for PRD parsing. Phase: ${delegationPhase || 'direct'}${research ? ' with research-backed analysis' : ''}...`,
+			'info'
+		);
 
-		if (MCP_AI_MODE === 'agent_driven' && agentObjectOutput) {
-			report(
-				`Using agent_driven mode for parsePRD AI call.${research ? ' Research mode active.' : ''}`,
-				'info'
-			);
-			paramsForAIService = {
-				agentObjectOutput,
-				agentUsageData,
-				role: research ? 'research' : 'main', // Still needed for context
-				session: session,
-				projectRoot: projectRoot,
-				schema: prdResponseSchema, // Schema is still useful for validation if ai-services does it
+		let generatedData; // This will hold the { tasks: [], metadata: {} } structure
+		let telemetryForFinalReport = null;
+
+		if (delegationPhase === 'initiate') {
+			// Phase 1: Initiate the call and return interaction details
+			const initiationResult = await generateObjectService({
+				role: research ? 'research' : 'main',
+				session: session, // from options
+				projectRoot: projectRoot, // from options
+				schema: prdResponseSchema, // Zod schema instance
 				objectName: 'tasks_data',
-				commandName: 'parse-prd',
-				outputType: isMCP ? 'mcp' : 'cli'
-				// systemPrompt and prompt are omitted as agentObjectOutput is provided
-			};
-		} else {
-			if (MCP_AI_MODE === 'agent_driven' && !agentObjectOutput) {
-				report(
-					'Agent_driven mode enabled but agentObjectOutput not provided to parsePRD. Falling back or erroring in ai-services-unified.',
-					'warn'
-				);
+				systemPrompt: systemPrompt,
+				prompt: userPrompt,
+				commandName: 'parse-prd', // Hardcoded for this tool
+				outputType: isMCP ? 'mcp' : 'cli',
+				delegationPhase: 'initiate',
+				clientContext: clientContext // from options
+			});
+			// In 'initiate' phase, parsePRD's job is to return this bundle.
+			// File operations and further processing happen in 'submit' phase or direct call.
+			return initiationResult;
+		} else if (delegationPhase === 'submit') {
+			// Phase 2: Submit the agent's response
+			if (!interactionId || rawLLMResponse === undefined) {
+				throw new Error("InteractionId and rawLLMResponse are required for 'submit' phase.");
 			}
-			report(
-				`Using direct mode for parsePRD AI call.${research ? ' Research mode active.' : ''}`,
-				'info'
-			);
-			paramsForAIService = {
+			const submissionResult = await submitDelegatedObjectResponseService({
+				interactionId,
+				rawLLMResponse,
+				llmUsageData: llmUsageData || {}, // from context
+				session: session, // from options
+				projectRoot: projectRoot // from options
+			});
+			generatedData = submissionResult.object; // This is { tasks: [], metadata: {} }
+			// aiServiceResponse is used later for telemetry, so let's keep a similar structure
+			aiServiceResponse = { telemetryData: submissionResult.telemetryData, object: generatedData };
+			telemetryForFinalReport = submissionResult.telemetryData;
+		} else {
+			// Direct call (no delegation)
+			aiServiceResponse = await generateObjectService({
 				role: research ? 'research' : 'main',
 				session: session,
 				projectRoot: projectRoot,
@@ -271,10 +304,10 @@ Guidelines:
 				prompt: userPrompt,
 				commandName: 'parse-prd',
 				outputType: isMCP ? 'mcp' : 'cli'
-			};
+			});
+			generatedData = aiServiceResponse.object; // Access the 'object' property
+			telemetryForFinalReport = aiServiceResponse.telemetryData;
 		}
-
-		aiServiceResponse = await generateObjectService(paramsForAIService);
 
 		// Create the directory if it doesn't exist
 		const tasksDir = path.dirname(tasksPath);
@@ -286,14 +319,11 @@ Guidelines:
 		);
 
 		// Validate and Process Tasks
-		// generateObjectService now returns { object, usage, telemetryData }
-		// So, aiServiceResponse.object should contain the parsed data.
-
-		const generatedData = aiServiceResponse.object;
+		// generatedData is now populated from either submitDelegatedObjectResponseService or generateObjectService
 
 		if (!generatedData || !Array.isArray(generatedData.tasks)) {
 			logFn.error(
-				`Internal Error: generateObjectService returned unexpected data structure or undefined object: ${JSON.stringify(aiServiceResponse)}`
+				`Internal Error: AI service processing returned unexpected data structure: ${JSON.stringify(generatedData)}`
 			);
 			throw new Error(
 				'AI service returned unexpected data structure after validation.'
@@ -378,10 +408,10 @@ Guidelines:
 		return {
 			success: true,
 			tasksPath,
-			telemetryData: aiServiceResponse?.telemetryData
+			telemetryData: telemetryForFinalReport
 		};
 	} catch (error) {
-		report(`Error parsing PRD: ${error.message}`, 'error');
+		report(`Error parsing PRD (Phase: ${delegationPhase || 'direct'}): ${error.message}`, 'error');
 
 		// Only show error UI for text output (CLI)
 		if (outputFormat === 'text') {

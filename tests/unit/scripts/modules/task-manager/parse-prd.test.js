@@ -23,15 +23,13 @@ jest.unstable_mockModule('../../../../../scripts/modules/utils.js', () => ({
 	promptYesNo: jest.fn()
 }));
 
+const mockGenerateObjectService = jest.fn();
+const mockSubmitDelegatedObjectResponseService = jest.fn();
 jest.unstable_mockModule(
 	'../../../../../scripts/modules/ai-services-unified.js',
 	() => ({
-		generateObjectService: jest.fn().mockResolvedValue({
-			mainResult: {
-				tasks: []
-			},
-			telemetryData: {}
-		})
+		generateObjectService: mockGenerateObjectService,
+		submitDelegatedObjectResponseService: mockSubmitDelegatedObjectResponseService,
 	})
 );
 
@@ -96,7 +94,7 @@ const { readJSON, writeJSON, log, promptYesNo } = await import(
 	'../../../../../scripts/modules/utils.js'
 );
 
-const { generateObjectService } = await import(
+const { generateObjectService, submitDelegatedObjectResponseService } = await import(
 	'../../../../../scripts/modules/ai-services-unified.js'
 );
 const generateTaskFiles = (
@@ -165,9 +163,16 @@ describe('parsePRD', () => {
 		fs.default.readFileSync.mockReturnValue(samplePRDContent);
 		fs.default.existsSync.mockReturnValue(true);
 		path.default.dirname.mockReturnValue('tasks');
-		generateObjectService.mockResolvedValue({
-			mainResult: sampleClaudeResponse,
-			telemetryData: {}
+		// Update default mock for generateObjectService to new return structure
+		mockGenerateObjectService.mockResolvedValue({
+			object: sampleClaudeResponse, // mainResult is now object
+			usage: { inputTokens: 10, outputTokens: 100 },
+			telemetryData: { some: 'telemetry' }
+		});
+		mockSubmitDelegatedObjectResponseService.mockResolvedValue({ // For submit phase tests
+			object: sampleClaudeResponse,
+			usage: { inputTokens: 5, outputTokens: 50 },
+			telemetryData: { other: 'telemetry' }
 		});
 		generateTaskFiles.mockResolvedValue(undefined);
 		promptYesNo.mockResolvedValue(true); // Default to "yes" for confirmation
@@ -200,7 +205,7 @@ describe('parsePRD', () => {
 		);
 
 		// Verify generateObjectService was called
-		expect(generateObjectService).toHaveBeenCalled();
+		expect(mockGenerateObjectService).toHaveBeenCalled();
 
 		// Verify directory check
 		expect(fs.default.existsSync).toHaveBeenCalledWith('tasks');
@@ -222,7 +227,7 @@ describe('parsePRD', () => {
 		expect(result).toEqual({
 			success: true,
 			tasksPath: 'tasks/tasks.json',
-			telemetryData: {}
+			telemetryData: { some: 'telemetry' } // Ensure telemetry is passed through
 		});
 
 		// Verify that the written data contains 2 tasks from sampleClaudeResponse
@@ -251,7 +256,7 @@ describe('parsePRD', () => {
 	test('should handle errors in the PRD parsing process', async () => {
 		// Mock an error in generateObjectService
 		const testError = new Error('Test error in AI API call');
-		generateObjectService.mockRejectedValueOnce(testError);
+		mockGenerateObjectService.mockRejectedValueOnce(testError);
 
 		// Setup mocks to simulate normal file conditions (no existing file)
 		fs.default.existsSync.mockImplementation((path) => {
@@ -405,9 +410,10 @@ describe('parsePRD', () => {
 		readJSON.mockReturnValue(existingTasks);
 
 		// Mock generateObjectService to return new tasks with continuing IDs
-		generateObjectService.mockResolvedValueOnce({
-			mainResult: newTasksWithContinuedIds,
-			telemetryData: {}
+		mockGenerateObjectService.mockResolvedValueOnce({
+			object: newTasksWithContinuedIds, // Changed from mainResult
+			usage: {},
+			telemetryData: { appendTelemetry: 'data' }
 		});
 
 		// Call the function with append option
@@ -435,7 +441,7 @@ describe('parsePRD', () => {
 		expect(result).toEqual({
 			success: true,
 			tasksPath: 'tasks/tasks.json',
-			telemetryData: {}
+			telemetryData: { appendTelemetry: 'data' }
 		});
 
 		// Verify that the written data contains 4 tasks (2 existing + 2 new)
@@ -458,5 +464,86 @@ describe('parsePRD', () => {
 
 		// Verify prompt was NOT called with append flag
 		expect(promptYesNo).not.toHaveBeenCalled();
+	});
+
+	// New tests for delegated flow
+	describe('parsePRD with Delegated Calls', () => {
+		const baseOptions = { // For parsePRD options parameter
+			projectRoot: 'fake/project',
+			mcpLog: log, // Use the mocked log
+			session: {},
+		};
+		const prdPath = 'path/to/prd.txt';
+		const tasksPath = 'tasks/tasks.json';
+		const numTasks = 3;
+
+		test("should call generateObjectService with delegationPhase 'initiate'", async () => {
+			const initiateContext = { delegationPhase: 'initiate', clientContext: { id: 'client123' } };
+			const expectedInitiationBundle = {
+				interactionId: 'delegate-id-1',
+				aiServiceRequest: { /* ... request details ... */ },
+				clientContext: { id: 'client123' }
+			};
+			mockGenerateObjectService.mockResolvedValueOnce(expectedInitiationBundle);
+			fs.default.existsSync.mockReturnValue(false); // No existing tasks.json
+
+			const result = await parsePRD(prdPath, tasksPath, numTasks, baseOptions, initiateContext);
+
+			expect(mockGenerateObjectService).toHaveBeenCalledWith(expect.objectContaining({
+				delegationPhase: 'initiate',
+				clientContext: initiateContext.clientContext,
+				commandName: 'parse-prd', // ensure commandName is passed
+				// other params like prompt, schema, role, etc.
+			}));
+			expect(result).toEqual(expectedInitiationBundle);
+			// Ensure no file operations happened in initiate phase
+			expect(writeJSON).not.toHaveBeenCalled();
+		});
+
+		test("should call submitDelegatedObjectResponseService and process tasks for 'submit' phase", async () => {
+			const submitContext = {
+				delegationPhase: 'submit',
+				interactionId: 'delegate-id-1',
+				rawLLMResponse: JSON.stringify(sampleClaudeResponse), // sampleClaudeResponse has {tasks: [...]}
+				llmUsageData: { inputTokens: 20, outputTokens: 200 }
+			};
+			const mockSubmittedObject = { // This is what submitDelegatedObjectResponseService returns
+				object: sampleClaudeResponse, // sampleClaudeResponse has {tasks: [...]}
+				usage: submitContext.llmUsageData,
+				telemetryData: { submitTele: 'data' }
+			};
+			mockSubmitDelegatedObjectResponseService.mockResolvedValueOnce(mockSubmittedObject);
+			fs.default.existsSync.mockReturnValue(false); // No existing tasks.json
+
+			const result = await parsePRD(prdPath, tasksPath, numTasks, baseOptions, submitContext);
+
+			expect(mockSubmitDelegatedObjectResponseService).toHaveBeenCalledWith(expect.objectContaining({
+				interactionId: submitContext.interactionId,
+				rawLLMResponse: submitContext.rawLLMResponse,
+				llmUsageData: submitContext.llmUsageData,
+				session: baseOptions.session,
+				projectRoot: baseOptions.projectRoot,
+			}));
+
+			// Verify downstream processing (file writing, etc.)
+			expect(writeJSON).toHaveBeenCalledWith(tasksPath, sampleClaudeResponse); // sampleClaudeResponse has {tasks: [...]}
+			expect(generateTaskFiles).toHaveBeenCalled();
+			expect(result.success).toBe(true);
+			expect(result.tasksPath).toBe(tasksPath);
+			expect(result.telemetryData).toEqual({ submitTele: 'data' });
+		});
+
+		test("should throw error if interactionId or rawLLMResponse missing in 'submit' phase", async () => {
+			const submitContext = {
+				delegationPhase: 'submit',
+				// interactionId: 'missing', // Intentionally missing
+				rawLLMResponse: JSON.stringify(sampleClaudeResponse),
+			};
+			fs.default.existsSync.mockReturnValue(false);
+
+			await expect(
+				parsePRD(prdPath, tasksPath, numTasks, baseOptions, submitContext)
+			).rejects.toThrow("InteractionId and rawLLMResponse are required for 'submit' phase.");
+		});
 	});
 });

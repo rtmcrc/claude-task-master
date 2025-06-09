@@ -10,7 +10,11 @@ import {
 	displayAiUsageSummary
 } from '../ui.js';
 
-import { generateTextService } from '../ai-services-unified.js';
+// Import necessary functions from ai-services-unified.js
+import {
+	generateTextService,
+	submitDelegatedTextResponseService
+} from '../ai-services-unified.js';
 
 import { getDefaultSubtasks, getDebugFlag } from '../config-manager.js';
 import generateTaskFiles from './generate-task-files.js';
@@ -413,13 +417,18 @@ async function expandTask(
 	context = {},
 	force = false
 ) {
+	// Destructure delegation-specific params from context
 	const {
 		session,
 		mcpLog,
 		projectRoot: contextProjectRoot,
-		agentTextOutput, // New: For agent_driven mode
-		agentUsageData // New: For agent_driven mode
+		clientContext, // For 'initiate' phase
+		delegationPhase,
+		interactionId,
+		rawLLMResponse,
+		llmUsageData
 	} = context;
+
 	const outputFormat = mcpLog ? 'json' : 'text';
 
 	// Determine projectRoot: Use from context if available, otherwise derive from tasksPath
@@ -582,31 +591,45 @@ async function expandTask(
 
 		try {
 			const role = useResearch ? 'research' : 'main';
-			const MCP_AI_MODE = process.env.MCP_AI_MODE || 'direct';
-			let paramsForAIService;
+			let telemetryForFinalReport = null;
 
-			if (MCP_AI_MODE === 'agent_driven' && agentTextOutput) {
-				logger.info('Using agent_driven mode for expandTask AI call.');
-				paramsForAIService = {
-					agentTextOutput,
-					agentUsageData,
-					role, // Still needed for context by ai-services-unified in agent mode
+			if (delegationPhase === 'initiate') {
+				logger.info(`Initiating task expansion for task ID: ${taskId}`);
+				const initiationResult = await generateTextService({
+					prompt: promptContent,
+					systemPrompt: systemPrompt,
+					role,
 					session,
 					projectRoot,
 					commandName: 'expand-task',
-					outputType: outputFormat
-				};
-			} else {
-				if (MCP_AI_MODE === 'agent_driven' && !agentTextOutput) {
-					logger.warn(
-						'Agent_driven mode enabled but agentTextOutput not provided to expandTask. Falling back to normal generation IF ALLOWED or erroring in ai-services-unified.'
-					);
-					// ai-services-unified will throw an error if agentTextOutput is missing in agent_driven mode.
-					// If we wanted to allow fallback, we'd remove the '&& agentTextOutput' above
-					// and ai-services-unified would need adjustment. Current setup is strict.
+					outputType: outputFormat,
+					delegationPhase: 'initiate',
+					clientContext: clientContext
+				});
+				// In 'initiate' phase, expandTask's job is to return this bundle.
+				// File operations and further processing happen in 'submit' phase or direct call.
+				return initiationResult;
+			} else if (delegationPhase === 'submit') {
+				logger.info(`Submitting delegated response for task expansion, interaction ID: ${interactionId}`);
+				if (!interactionId || rawLLMResponse === undefined) {
+					throw new Error("InteractionId and rawLLMResponse are required for 'submit' phase of expandTask.");
 				}
-				logger.info('Using direct mode for expandTask AI call.');
-				paramsForAIService = {
+				const submissionResult = await submitDelegatedTextResponseService({
+					interactionId,
+					rawLLMResponse,
+					llmUsageData: llmUsageData || {},
+					session,
+					projectRoot
+				});
+				responseText = submissionResult.text;
+				telemetryForFinalReport = submissionResult.telemetryData;
+				// Retain structure for displayAiUsageSummary if needed, though telemetryForFinalReport is primary
+				aiServiceResponse = { telemetryData: telemetryForFinalReport, text: responseText, usage: submissionResult.usage };
+
+
+			} else { // Direct call
+				logger.info(`Performing direct task expansion for task ID: ${taskId}`);
+				aiServiceResponse = await generateTextService({
 					prompt: promptContent,
 					systemPrompt: systemPrompt,
 					role,
@@ -614,15 +637,11 @@ async function expandTask(
 					projectRoot,
 					commandName: 'expand-task',
 					outputType: outputFormat
-				};
+				});
+				// In direct mode, generateTextService returns { text, usage, telemetryData }
+				responseText = aiServiceResponse.text;
+				telemetryForFinalReport = aiServiceResponse.telemetryData;
 			}
-
-			// Call generateTextService with the determined prompts and telemetry params
-			aiServiceResponse = await generateTextService(paramsForAIService);
-			// In agent_driven mode, aiServiceResponse.text is agentTextOutput.
-			// In direct mode, aiServiceResponse.text is the LLM response.
-			// The .text property is consistently available from the object returned by generateTextService.
-			responseText = aiServiceResponse.text;
 
 			// Parse Subtasks
 			generatedSubtasks = parseSubtasksFromText(
@@ -678,11 +697,11 @@ async function expandTask(
 		// Return the updated task object AND telemetry data
 		return {
 			task,
-			telemetryData: aiServiceResponse?.telemetryData
+			telemetryData: telemetryForFinalReport
 		};
 	} catch (error) {
 		// Catches errors from file reading, parsing, AI call etc.
-		logger.error(`Error expanding task ${taskId}: ${error.message}`, 'error');
+		logger.error(`Error expanding task ${taskId} (Phase: ${delegationPhase || 'direct'}): ${error.message}`, 'error');
 		if (outputFormat === 'text' && getDebugFlag(session)) {
 			console.error(error); // Log full stack in debug CLI mode
 		}

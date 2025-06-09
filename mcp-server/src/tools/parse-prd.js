@@ -9,7 +9,11 @@ import {
 	withNormalizedProjectRoot,
 	createErrorResponse
 } from './utils.js';
-import { parsePRDDirect } from '../core/task-master-core.js';
+import {
+	parsePRDDirect,
+	initiateParsePRDDirect,
+	submitParsePRDResponseDirect
+} from '../core/task-master-core.js';
 import {
 	PRD_FILE,
 	TASKMASTER_DOCS_DIR,
@@ -68,6 +72,62 @@ export function registerParsePRDTool(server) {
 			} catch (error) {
 				log.error(`Error in parse_prd: ${error.message}`);
 				return createErrorResponse(`Failed to parse PRD: ${error.message}`);
+			}
+		})
+	});
+
+	server.addTool({
+		name: 'initiateDelegatedParsePRD',
+		description: "Initiates a delegated PRD parsing operation. Returns prompts and an interaction ID for the agent to make the LLM call.",
+		parameters: z.object({
+			projectRoot: z.string().describe("Absolute path to the project."),
+			input: z.string().optional().describe("Path to the PRD file relative to projectRoot or absolute."),
+			prdContent: z.string().optional().describe("Full text content of the PRD."),
+			numTasks: z.number().int().positive().optional().describe("Approximate number of tasks to generate."),
+			// nextId is usually determined internally based on existing tasks if appending,
+			// but for a fresh parse or controlled generation, it might be exposed.
+			// For now, let's assume the task-manager's parsePRD will handle nextId generation logic.
+			research: z.boolean().optional().default(false).describe("Use research-optimized model."),
+			clientContext: z.any().optional().describe("Optional client context to be echoed in the response.")
+		}).refine(data => data.input || data.prdContent, {
+			message: "Either 'input' (PRD file path) or 'prdContent' (direct PRD text) must be provided.",
+		}),
+		execute: withNormalizedProjectRoot(async (args, { log, session }) => {
+			try {
+				// initiateParsePRDDirect expects projectRoot in args
+				const result = await initiateParsePRDDirect(args, log, { session });
+				// This result will be { success: true, data: { interactionId, aiServiceRequest, clientContext } }
+				return handleApiResult(result, log);
+			} catch (error) {
+				log.error(`Error in initiateDelegatedParsePRD: ${error.message}`);
+				return createErrorResponse(`Failed to initiate PRD parsing: ${error.message}`);
+			}
+		})
+	});
+
+	server.addTool({
+		name: 'submitDelegatedParsePRDResponse',
+		description: "Submits the raw LLM response for a delegated PRD parsing operation.",
+		parameters: z.object({
+			interactionId: z.string().describe("The interaction ID received from initiateDelegatedParsePRD tool call."),
+			rawLLMResponse: z.string().describe("The raw JSON string response from the LLM."),
+			llmUsageData: z.object({
+				inputTokens: z.number().int().optional(),
+				outputTokens: z.number().int().optional()
+			}).optional().describe("Optional token usage data from the agent's LLM call."),
+			projectRoot: z.string().describe("Absolute path to the project."),
+			output: z.string().optional().describe(`Path to save tasks.json, relative to projectRoot. Default: ${TASKMASTER_TASKS_FILE}`),
+			force: z.boolean().optional().default(false).describe("Overwrite tasks.json if it exists."),
+			append: z.boolean().optional().default(false).describe("Append to existing tasks.json.")
+		}),
+		execute: withNormalizedProjectRoot(async (args, { log, session }) => {
+			try {
+				// submitParsePRDResponseDirect expects projectRoot in args
+				const result = await submitParsePRDResponseDirect(args, log, { session });
+				return handleApiResult(result, log);
+			} catch (error) {
+				log.error(`Error in submitDelegatedParsePRDResponse: ${error.message}`);
+				return createErrorResponse(`Failed to submit PRD response: ${error.message}`);
 			}
 		})
 	});

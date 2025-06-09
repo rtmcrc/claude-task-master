@@ -7,7 +7,11 @@
 // Import direct function implementations
 import { listTasksDirect } from './direct-functions/list-tasks.js';
 import { getCacheStatsDirect } from './direct-functions/cache-stats.js';
-import { parsePRDDirect } from './direct-functions/parse-prd.js';
+import {
+	parsePRDDirect,
+	initiateParsePRDDirect,  // New
+	submitParsePRDResponseDirect // New
+} from './direct-functions/parse-prd.js';
 import { updateTasksDirect } from './direct-functions/update-tasks.js';
 import { updateTaskByIdDirect } from './direct-functions/update-task-by-id.js';
 import { updateSubtaskByIdDirect } from './direct-functions/update-subtask-by-id.js';
@@ -15,11 +19,19 @@ import { generateTaskFilesDirect } from './direct-functions/generate-task-files.
 import { setTaskStatusDirect } from './direct-functions/set-task-status.js';
 import { showTaskDirect } from './direct-functions/show-task.js';
 import { nextTaskDirect } from './direct-functions/next-task.js';
-import { expandTaskDirect } from './direct-functions/expand-task.js';
+import {
+	expandTaskDirect,
+	initiateExpandTaskDirect, // New
+	submitExpandTaskResponseDirect // New
+} from './direct-functions/expand-task.js';
 import { addTaskDirect } from './direct-functions/add-task.js';
 import { addSubtaskDirect } from './direct-functions/add-subtask.js';
 import { removeSubtaskDirect } from './direct-functions/remove-subtask.js';
-import { analyzeTaskComplexityDirect } from './direct-functions/analyze-task-complexity.js';
+import {
+	analyzeTaskComplexityDirect,
+	initiateAnalyzeTaskComplexityDirect, // New
+	submitAnalyzeTaskComplexityResponseDirect // New
+} from './direct-functions/analyze-task-complexity.js';
 import { clearSubtasksDirect } from './direct-functions/clear-subtasks.js';
 import { expandAllTasksDirect } from './direct-functions/expand-all-tasks.js';
 import { removeDependencyDirect } from './direct-functions/remove-dependency.js';
@@ -40,6 +52,8 @@ export const directFunctions = new Map([
 	['listTasksDirect', listTasksDirect],
 	['getCacheStatsDirect', getCacheStatsDirect],
 	['parsePRDDirect', parsePRDDirect],
+	['initiateParsePRDDirect', initiateParsePRDDirect], // New
+	['submitParsePRDResponseDirect', submitParsePRDResponseDirect], // New
 	['updateTasksDirect', updateTasksDirect],
 	['updateTaskByIdDirect', updateTaskByIdDirect],
 	['updateSubtaskByIdDirect', updateSubtaskByIdDirect],
@@ -48,10 +62,14 @@ export const directFunctions = new Map([
 	['showTaskDirect', showTaskDirect],
 	['nextTaskDirect', nextTaskDirect],
 	['expandTaskDirect', expandTaskDirect],
+	['initiateExpandTaskDirect', initiateExpandTaskDirect], // New
+	['submitExpandTaskResponseDirect', submitExpandTaskResponseDirect], // New
 	['addTaskDirect', addTaskDirect],
 	['addSubtaskDirect', addSubtaskDirect],
 	['removeSubtaskDirect', removeSubtaskDirect],
 	['analyzeTaskComplexityDirect', analyzeTaskComplexityDirect],
+	['initiateAnalyzeTaskComplexityDirect', initiateAnalyzeTaskComplexityDirect], // New
+	['submitAnalyzeTaskComplexityResponseDirect', submitAnalyzeTaskComplexityResponseDirect], // New
 	['clearSubtasksDirect', clearSubtasksDirect],
 	['expandAllTasksDirect', expandAllTasksDirect],
 	['removeDependencyDirect', removeDependencyDirect],
@@ -70,6 +88,8 @@ export {
 	listTasksDirect,
 	getCacheStatsDirect,
 	parsePRDDirect,
+	initiateParsePRDDirect, // New
+	submitParsePRDResponseDirect, // New
 	updateTasksDirect,
 	updateTaskByIdDirect,
 	updateSubtaskByIdDirect,
@@ -78,10 +98,14 @@ export {
 	showTaskDirect,
 	nextTaskDirect,
 	expandTaskDirect,
+	initiateExpandTaskDirect, // New
+	submitExpandTaskResponseDirect, // New
 	addTaskDirect,
 	addSubtaskDirect,
 	removeSubtaskDirect,
 	analyzeTaskComplexityDirect,
+	initiateAnalyzeTaskComplexityDirect, // New
+	submitAnalyzeTaskComplexityResponseDirect, // New
 	clearSubtasksDirect,
 	expandAllTasksDirect,
 	removeDependencyDirect,

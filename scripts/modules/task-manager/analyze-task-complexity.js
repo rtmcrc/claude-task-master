@@ -11,7 +11,10 @@ import {
 	displayAiUsageSummary
 } from '../ui.js';
 
-import { generateTextService } from '../ai-services-unified.js';
+import {
+	generateTextService,
+	submitDelegatedTextResponseService
+} from '../ai-services-unified.js';
 
 import { getDebugFlag, getProjectName } from '../config-manager.js';
 import {
@@ -70,8 +73,11 @@ async function analyzeTaskComplexity(options, context = {}) {
 	const {
 		session,
 		mcpLog,
-		agentTextOutput, // New
-		agentUsageData // New
+		clientContext, // For 'initiate' phase
+		delegationPhase,
+		interactionId,
+		rawLLMResponse,
+		llmUsageData
 	} = context;
 	const tasksPath = options.file || LEGACY_TASKS_FILE;
 	const outputPath = options.output || COMPLEXITY_REPORT_FILE;
@@ -363,29 +369,42 @@ async function analyzeTaskComplexity(options, context = {}) {
 
 		try {
 			const role = useResearch ? 'research' : 'main';
-			const MCP_AI_MODE = process.env.MCP_AI_MODE || 'direct';
-			let paramsForAIService;
+			let responseText;
+			let telemetryForFinalReport = null;
 
-			if (MCP_AI_MODE === 'agent_driven' && agentTextOutput) {
-				reportLog('Using agent_driven mode for analyzeTaskComplexity AI call.', 'info');
-				paramsForAIService = {
-					agentTextOutput,
-					agentUsageData,
-					role, // Still needed for context
+			if (delegationPhase === 'initiate') {
+				reportLog(`Initiating complexity analysis. Research: ${useResearch}`, 'info');
+				const initiationResult = await generateTextService({
+					prompt,
+					systemPrompt,
+					role,
 					session,
 					projectRoot,
 					commandName: 'analyze-complexity',
-					outputType: mcpLog ? 'mcp' : 'cli'
-				};
-			} else {
-				if (MCP_AI_MODE === 'agent_driven' && !agentTextOutput) {
-					reportLog(
-						'Agent_driven mode enabled but agentTextOutput not provided to analyzeTaskComplexity. Falling back or erroring in ai-services-unified.',
-						'warn'
-					);
+					outputType: mcpLog ? 'mcp' : 'cli',
+					delegationPhase: 'initiate',
+					clientContext: clientContext
+				});
+				return initiationResult; // Return Phase 1 bundle
+			} else if (delegationPhase === 'submit') {
+				reportLog(`Submitting delegated response for complexity analysis, interaction ID: ${interactionId}`, 'info');
+				if (!interactionId || rawLLMResponse === undefined) {
+					throw new Error("InteractionId and rawLLMResponse are required for 'submit' phase of analyzeTaskComplexity.");
 				}
-				reportLog('Using direct mode for analyzeTaskComplexity AI call.', 'info');
-				paramsForAIService = {
+				const submissionResult = await submitDelegatedTextResponseService({
+					interactionId,
+					rawLLMResponse,
+					llmUsageData: llmUsageData || {},
+					session,
+					projectRoot
+				});
+				responseText = submissionResult.text;
+				telemetryForFinalReport = submissionResult.telemetryData;
+				// Keep aiServiceResponse structure for displayAiUsageSummary compatibility if used later directly
+				aiServiceResponse = { telemetryData: telemetryForFinalReport, text: responseText, usage: submissionResult.usage };
+			} else { // Direct call
+				reportLog(`Performing direct complexity analysis. Research: ${useResearch}`, 'info');
+				aiServiceResponse = await generateTextService({
 					prompt,
 					systemPrompt,
 					role,
@@ -393,10 +412,12 @@ async function analyzeTaskComplexity(options, context = {}) {
 					projectRoot,
 					commandName: 'analyze-complexity',
 					outputType: mcpLog ? 'mcp' : 'cli'
-				};
+				});
+				// generateTextService returns { text, usage, telemetryData }
+				responseText = aiServiceResponse.text;
+				telemetryForFinalReport = aiServiceResponse.telemetryData;
 			}
 
-			aiServiceResponse = await generateTextService(paramsForAIService);
 
 			if (loadingIndicator) {
 				stopLoadingIndicator(loadingIndicator);
@@ -412,8 +433,8 @@ async function analyzeTaskComplexity(options, context = {}) {
 
 			reportLog(`Parsing complexity analysis from text response...`, 'info');
 			try {
-				// aiServiceResponse.text contains the main text output in both modes
-				let cleanedResponse = aiServiceResponse.text;
+				// responseText is now populated from either phase
+				let cleanedResponse = responseText;
 				cleanedResponse = cleanedResponse.trim();
 
 				const codeBlockMatch = cleanedResponse.match(
@@ -622,11 +643,11 @@ async function analyzeTaskComplexity(options, context = {}) {
 
 			return {
 				report: report,
-				telemetryData: aiServiceResponse?.telemetryData
+				telemetryData: telemetryForFinalReport
 			};
 		} catch (aiError) {
 			if (loadingIndicator) stopLoadingIndicator(loadingIndicator);
-			reportLog(`Error during AI service call: ${aiError.message}`, 'error');
+			reportLog(`Error during AI service call (Phase: ${delegationPhase || 'direct'}): ${aiError.message}`, 'error');
 			if (outputFormat === 'text') {
 				console.error(
 					chalk.red(`Error during AI service call: ${aiError.message}`)
@@ -645,7 +666,7 @@ async function analyzeTaskComplexity(options, context = {}) {
 			throw aiError;
 		}
 	} catch (error) {
-		reportLog(`Error analyzing task complexity: ${error.message}`, 'error');
+		reportLog(`Error analyzing task complexity (Phase: ${delegationPhase || 'direct'}): ${error.message}`, 'error');
 		if (outputFormat === 'text') {
 			console.error(
 				chalk.red(`Error analyzing task complexity: ${error.message}`)
