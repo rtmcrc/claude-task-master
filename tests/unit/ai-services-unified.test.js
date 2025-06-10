@@ -776,12 +776,13 @@ describe('Unified AI Services', () => {
 					systemPrompt: params.systemPrompt,
 					userPrompt: params.prompt,
 					objectName: mockObjectName,
-					schemaDefinition: expect.any(String), // JSON string of schema
+					// schemaDefinition is no longer part of aiServiceRequest
 					targetModelInfo: expect.objectContaining({
 						provider: 'openai',
 						modelId: 'gpt-4',
 					}),
 				}));
+				expect(result.aiServiceRequest).not.toHaveProperty('schemaDefinition');
 
 				// To verify context was stored, we'd ideally check pendingInteractions.
 				// Indirect check: if submitDelegated with this ID later works, it was stored.

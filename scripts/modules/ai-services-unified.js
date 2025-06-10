@@ -246,7 +246,7 @@ async function _unifiedServiceRunner(serviceType, params) {
 			interactionId: interactionId,
 			aiServiceRequest: {
 				serviceType: serviceType, systemPrompt: generatedSystemPrompt, userPrompt: prompt,
-				schemaDefinition: serviceType === 'generateObject' && schema ? JSON.stringify(schema.description || schema._def || schema) : undefined,
+				// schemaDefinition has been removed from here
 				objectName: serviceType === 'generateObject' ? objectName : undefined,
 				targetModelInfo: { provider: intendedProviderName, modelId: intendedModelId, maxTokens: intendedRoleParams?.maxTokens, temperature: intendedRoleParams?.temperature }
 			},

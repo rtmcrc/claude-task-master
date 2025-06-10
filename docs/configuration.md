@@ -187,12 +187,12 @@ The `interactionId` generated in Phase 1 is a temporary identifier for the pendi
         *   `interactionId`: Unique ID for this transaction.
         *   `aiServiceRequest`: Contains all data the agent needs to make the LLM call.
             *   `serviceType`: e.g., 'generateObject', 'generateText'.
-            *   `systemPrompt`: The system prompt Task Master would have used.
+            *   `systemPrompt`: The system prompt Task Master would have used. This prompt will include instructions about the expected JSON structure if `serviceType` is `generateObject`.
             *   `userPrompt`: The user prompt Task Master would have used.
-            *   `schemaDefinition`: For `generateObject` service type, a stringified JSON representation of the expected Zod schema's structure. The agent can use this to guide the LLM.
             *   `objectName`: For `generateObject`, the name of the object/tool being requested.
             *   `targetModelInfo`: Information about the provider/model Task Master would have targeted (e.g., `provider`, `modelId`, `maxTokens`).
         *   `clientContext`: The `clientContext` object passed in the request, echoed back for the agent's use.
+    *   **Note on Object Generation:** For `serviceType: 'generateObject'`, the `aiServiceRequest` will *not* include a `schemaDefinition` field. The agent should instruct its LLM to produce a JSON output that conforms to the structure described textually within the `systemPrompt` and/or `userPrompt`. Task Master will perform strict validation of the `rawLLMResponse` (submitted by the agent in Phase 2) against its internal Zod schema, which was originally used to generate the textual prompt descriptions.
 
 2.  **Agent:** Makes the LLM call using the details from `aiServiceRequest`.
 
@@ -219,7 +219,7 @@ The following toolchains have been refactored to support this two-phase delegate
         *   `numTasks: z.number().int().positive().optional()`
         *   `research: z.boolean().optional().default(false)`
         *   `clientContext: z.any().optional()`
-    *   **Response Body (Success Data):** `{ interactionId, aiServiceRequest: { serviceType: "generateObject", systemPrompt, userPrompt, schemaDefinition, objectName: "tasks_data", targetModelInfo }, clientContext }`
+    *   **Response Body (Success Data):** `{ interactionId, aiServiceRequest: { serviceType: "generateObject", systemPrompt, userPrompt, objectName: "tasks_data", targetModelInfo }, clientContext }` (Note: `schemaDefinition` is not included; the agent should rely on prompts for JSON structure guidance.)
 
 *   **`submitDelegatedParsePRDResponse`**
     *   **Description:** Submits the raw LLM JSON string response for a previously initiated PRD parsing. Task Master validates the JSON against the schema, processes it into tasks, and saves `tasks.json` and individual task files.
@@ -255,9 +255,8 @@ The following toolchains have been refactored to support this two-phase delegate
         "interactionId": "abcdef-1234-5678-fedcba",
         "aiServiceRequest": {
           "serviceType": "generateObject",
-          "systemPrompt": "You are an AI assistant specialized in analyzing PRDs...",
-          "userPrompt": "Here's the Product Requirements Document (PRD) to break down...",
-          "schemaDefinition": "{\\"type\\":\\"object\\",\\"properties\\":{\\"tasks\\":{\\"type\\":\\"array\\",\\"items\\":{...}}, ...}}",
+          "systemPrompt": "You are an AI assistant specialized in analyzing PRDs... Ensure the output is a JSON object with a 'tasks' array and a 'metadata' object...",
+          "userPrompt": "Here's the Product Requirements Document (PRD) to break down... Adhere to the JSON structure described in the system prompt.",
           "objectName": "tasks_data",
           "targetModelInfo": { "provider": "anthropic", "modelId": "claude-3-opus-20240229", "maxTokens": 200000 }
         },
@@ -265,6 +264,7 @@ The following toolchains have been refactored to support this two-phase delegate
       }
     }
     ```
+    The agent then uses the `systemPrompt` and `userPrompt` to instruct the LLM to generate a JSON object conforming to the structure described in the prompts. Task Master will validate the submitted raw JSON against its internally stored schema during Phase 2.
 
 3.  **Agent:** Uses `aiServiceRequest` to make an LLM call (e.g., to Anthropic Claude API). Receives `rawLLMResponseString` from the LLM.
 
