@@ -902,26 +902,18 @@ async function addTask(
 				});
 				report('DEBUG: generateObjectService returned successfully.', 'debug');
 
-				if (!aiServiceResponse || !aiServiceResponse.mainResult) {
-					throw new Error(
-						'AI service did not return the expected object structure.'
-					);
+				if (!aiServiceResponse || typeof aiServiceResponse.mainResult !== 'object' || aiServiceResponse.mainResult === null) {
+					logFn.error(`Internal Error: AI service did not return a valid object in mainResult. Received: ${JSON.stringify(aiServiceResponse?.mainResult)}`);
+					throw new Error('AI service did not return a valid object structure in mainResult.');
 				}
 
-				// Prefer mainResult if it looks like a valid task object, otherwise try mainResult.object
-				if (
-					aiServiceResponse.mainResult.title &&
-					aiServiceResponse.mainResult.description
-				) {
-					taskData = aiServiceResponse.mainResult;
-				} else if (
-					aiServiceResponse.mainResult.object &&
-					aiServiceResponse.mainResult.object.title &&
-					aiServiceResponse.mainResult.object.description
-				) {
-					taskData = aiServiceResponse.mainResult.object;
-				} else {
-					throw new Error('AI service did not return a valid task object.');
+				taskData = aiServiceResponse.mainResult;
+
+				// Validate essential fields from the AI-generated taskData
+				if (typeof taskData.title !== 'string' || taskData.title.trim() === '' ||
+				    typeof taskData.description !== 'string' || taskData.description.trim() === '') {
+					logFn.error(`Internal Error: AI service mainResult is missing required task fields (title/description) or they are invalid. Received: ${JSON.stringify(taskData)}`);
+					throw new Error('AI service mainResult is missing required task fields (title/description) or they are invalid.');
 				}
 
 				report('Successfully generated task data from AI.', 'success');

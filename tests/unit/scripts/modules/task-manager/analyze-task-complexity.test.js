@@ -221,7 +221,7 @@ describe('analyzeTaskComplexity', () => {
 		generateTextService.mockResolvedValue(sampleApiResponse);
 	});
 
-	test('should call generateTextService with the correct parameters', async () => {
+	test('should call generateTextService with the correct parameters and return telemetryData', async () => {
 		// Arrange
 		const options = {
 			file: 'tasks/tasks.json',
@@ -229,17 +229,14 @@ describe('analyzeTaskComplexity', () => {
 			threshold: '5',
 			research: false
 		};
+		const mockMcpLog = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(), success: jest.fn() };
+
+		// Mock generateTextService to return the sampleApiResponse which includes telemetry
+		generateTextService.mockResolvedValue(sampleApiResponse);
+
 
 		// Act
-		await analyzeTaskComplexity(options, {
-			mcpLog: {
-				info: jest.fn(),
-				warn: jest.fn(),
-				error: jest.fn(),
-				debug: jest.fn(),
-				success: jest.fn()
-			}
-		});
+		const result = await analyzeTaskComplexity(options, { mcpLog: mockMcpLog });
 
 		// Assert
 		expect(readJSON).toHaveBeenCalledWith('tasks/tasks.json');
@@ -254,6 +251,8 @@ describe('analyzeTaskComplexity', () => {
 				complexityAnalysis: expect.any(Array)
 			})
 		);
+		expect(result.report).toBeDefined();
+		expect(result.telemetryData).toEqual(sampleApiResponse.telemetryData);
 	});
 
 	test('should use research flag to determine which AI service to use', async () => {
