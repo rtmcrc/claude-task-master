@@ -258,6 +258,7 @@ const actualPendingInteractions = new Map(); // This won't work as it's not expo
 
 // Import the module to test (AFTER mocks)
 let ais; // To hold all imported services
+let pendingInteractionsExported; // To test interaction lifecycle
 
 describe('Unified AI Services', () => {
 	const fakeProjectRoot = '/fake/project/root'; // Define for reuse
@@ -265,6 +266,9 @@ describe('Unified AI Services', () => {
 	beforeAll(async () => {
 		// Import all services from the module
 		ais = await import('../../scripts/modules/ai-services-unified.js');
+		// Attempt to get a handle on pendingInteractions if it's exposed for testing (it's not, so this is illustrative)
+		// If there was a test-only export:
+		// pendingInteractionsExported = ais.TEST_ONLY_pendingInteractions;
 	});
 
 	beforeEach(() => {
@@ -920,6 +924,10 @@ describe('Unified AI Services', () => {
 				// We can't directly manipulate pendingInteractions' timestamps without changing SUT.
 				// So, we'll rely on the previous test that shows successful deletion,
 				// and this one for a clearly non-existent ID.
+				// To properly test TTL, Date.now() needs to be mockable across the SUT's scope.
+				// jest.spyOn(Date, 'now').mockReturnValue(originalDateNow() + ais.INTERACTION_TTL_MS + 1000); -> this needs Date.now to be called as Date.now() in SUT
+				// If Date.now is already globally mocked (e.g. via jest.useFakeTimers()), this would work differently.
+				// For now, we accept this limitation on direct TTL testing without more invasive mocks.
 
 				Date.now = originalDateNow; // Restore Date.now
 			});
@@ -927,22 +935,32 @@ describe('Unified AI Services', () => {
 			test('should throw if serviceType in context does not match submission type', async () => {
 				// Setup an interaction for 'generateText'
 				mockRandomUUID.mockReturnValue(mockInteractionId);
-				mockGetMainProvider.mockReturnValue('openai');
+				mockGetMainProvider.mockReturnValue('openai'); // Ensure these are set for the setup call
 				mockGetMainModelId.mockReturnValue('gpt-4');
+				mockGetParametersForRole.mockReturnValue({ maxTokens: 1000, temperature: 0.7 });
 				mockIsApiKeySet.mockReturnValue(true);
-				await ais.generateTextService({ // Calling generateTextService to set up
+				mockGetUserId.mockReturnValue(testUserId);
+
+
+				await ais.generateTextService({ // Calling generateTextService to set up for generateText
 					role: 'main',
 					prompt: 'Setup prompt for text',
+					systemPrompt: 'System for text',
 					delegationPhase: 'initiate',
 					commandName: testCommandName,
 					outputType: testOutputType,
 					projectRoot: fakeProjectRoot,
+					session: {},
+					clientContext: testClientContext,
 				});
 
 				const rawLLMResponse = JSON.stringify({ name: 'Test Name', age: 30 });
-				await expect(ais.submitDelegatedObjectResponseService({ // Submitting to OBJECT service
+				// Then try to submit this text interaction to the object submission service
+				await expect(ais.submitDelegatedObjectResponseService({
 					interactionId: mockInteractionId,
 					rawLLMResponse,
+					session: {},
+					projectRoot: fakeProjectRoot,
 				})).rejects.toThrow(`Interaction ${mockInteractionId} is for generateText, not generateObject.`);
 			});
 		});
