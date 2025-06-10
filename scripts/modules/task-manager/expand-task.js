@@ -453,15 +453,6 @@ async function expandTask(
 	}
 	const projectRoot = utilNormalizeProjectRoot(determinedProjectRoot); // Normalized projectRoot
 
-	// Use mcpLog if available, otherwise use the default console log wrapper
-	// const logger = mcpLog || { // logger definition moved up
-		info: (msg) => !isSilentMode() && log('info', msg),
-		warn: (msg) => !isSilentMode() && log('warn', msg),
-		error: (msg) => !isSilentMode() && log('error', msg),
-		debug: (msg) =>
-			!isSilentMode() && getDebugFlag(session) && log('debug', msg) // Use getDebugFlag
-	};
-
 	if (mcpLog) {
 		logger.info(`expandTask called with context: session=${!!session}`);
 	}
