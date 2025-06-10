@@ -321,12 +321,11 @@ export async function initiateExpandTaskDirect(args, log, context = {}) {
 				projectRoot,
 				commandName: 'expand-task-initiate', // Distinguish command
 				outputType: 'mcp',
-				clientContext // Pass through
+				clientContext, // Pass through
+				delegationPhase: 'initiate' // Correctly placed here
 			},
-			false, // force flag - not relevant for initiate, but expandTask expects it
-			{ // Delegation context for expandTask
-				delegationPhase: 'initiate'
-			}
+			false // force flag - not relevant for initiate, but expandTask expects it
+			// No 8th argument
 		);
 
 		if (result && result.interactionId && result.aiServiceRequest) {

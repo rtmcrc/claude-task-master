@@ -141,16 +141,16 @@ describe('Direct Functions - expand-task', () => {
 				undefined,
 				false,
 				'',
-				expect.objectContaining({
+				expect.objectContaining({ // 6th argument: context object for expandTask
 					projectRoot: defaultProjectRoot,
 					clientContext: initiateArgs.clientContext,
 					commandName: 'expand-task-initiate',
+					delegationPhase: 'initiate' // Ensure this is checked here
 				}),
-				false, // force flag for core expandTask signature
-				expect.objectContaining({
-					delegationPhase: 'initiate'
-				})
+				false // 7th argument: forceFlag
+				// No 8th argument should be here
 			);
+			expect(mockCoreExpandTask.mock.calls[0].length).toBe(7); // Verify exactly 7 arguments were passed
 			expect(result.success).toBe(true);
 			expect(result.data).toEqual(expectedBundle);
 		});
