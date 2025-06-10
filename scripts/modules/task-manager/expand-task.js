@@ -19,6 +19,7 @@ import {
 import { getDefaultSubtasks, getDebugFlag } from '../config-manager.js';
 import generateTaskFiles from './generate-task-files.js';
 import { COMPLEXITY_REPORT_FILE } from '../../../src/constants/paths.js';
+import { normalizeProjectRoot as utilNormalizeProjectRoot } from '../../../src/utils/path-utils.js';
 
 // --- Zod Schemas (Keep from previous step) ---
 const subtaskSchema = z
@@ -431,12 +432,29 @@ async function expandTask(
 
 	const outputFormat = mcpLog ? 'json' : 'text';
 
-	// Determine projectRoot: Use from context if available, otherwise derive from tasksPath
-	const projectRoot =
-		contextProjectRoot || path.dirname(path.dirname(tasksPath));
-
 	// Use mcpLog if available, otherwise use the default console log wrapper
 	const logger = mcpLog || {
+		info: (msg) => !isSilentMode() && log('info', msg),
+		warn: (msg) => !isSilentMode() && log('warn', msg),
+		error: (msg) => !isSilentMode() && log('error', msg),
+		debug: (msg) =>
+			!isSilentMode() && getDebugFlag(session) && log('debug', msg) // Use getDebugFlag
+	};
+
+	// Determine and normalize projectRoot
+	let determinedProjectRoot = contextProjectRoot;
+	if (!determinedProjectRoot) {
+		if (tasksPath) {
+			determinedProjectRoot = path.dirname(path.dirname(tasksPath));
+		} else {
+			determinedProjectRoot = process.cwd();
+			logger.warn("projectRoot not provided to expandTask and could not be derived from tasksPath, defaulting to CWD. Path-dependent features like complexity reports might be affected.");
+		}
+	}
+	const projectRoot = utilNormalizeProjectRoot(determinedProjectRoot); // Normalized projectRoot
+
+	// Use mcpLog if available, otherwise use the default console log wrapper
+	// const logger = mcpLog || { // logger definition moved up
 		info: (msg) => !isSilentMode() && log('info', msg),
 		warn: (msg) => !isSilentMode() && log('warn', msg),
 		error: (msg) => !isSilentMode() && log('error', msg),
