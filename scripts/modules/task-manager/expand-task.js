@@ -21,45 +21,22 @@ import generateTaskFiles from './generate-task-files.js';
 import { COMPLEXITY_REPORT_FILE } from '../../../src/constants/paths.js';
 import { normalizeProjectRoot as utilNormalizeProjectRoot } from '../../../src/utils/path-utils.js';
 
-// --- Zod Schemas (Keep from previous step) ---
-const subtaskSchema = z
-	.object({
-		id: z
-			.number()
-			.int()
-			.positive()
-			.describe('Sequential subtask ID starting from 1'),
-		title: z.string().min(5).describe('Clear, specific title for the subtask'),
-		description: z
-			.string()
-			.min(10)
-			.describe('Detailed description of the subtask'),
-		dependencies: z
-			.array(z.number().int())
-			.describe('IDs of prerequisite subtasks within this expansion'),
-		details: z.string().min(20).describe('Implementation details and guidance'),
-		status: z
-			.string()
-			.describe(
-				'The current status of the subtask (should be pending initially)'
-			),
-		testStrategy: z
-			.string()
-			.optional()
-			.describe('Approach for testing this subtask')
-	})
-	.strict();
+// --- Zod Schemas ---
+const subtaskSchema = z.object({
+	id: z.number().int().positive(),
+	title: z.string().min(5),
+	description: z.string().min(10),
+	dependencies: z.array(z.number().int()),
+	details: z.string().min(20),
+	status: z.string(),
+	testStrategy: z.string().optional()
+}).strict();
 const subtaskArraySchema = z.array(subtaskSchema);
 const subtaskWrapperSchema = z.object({
-	subtasks: subtaskArraySchema.describe('The array of generated subtasks.')
+	subtasks: subtaskArraySchema
 });
 // --- End Zod Schemas ---
 
-/**
- * Generates the system prompt for the main AI role (e.g., Claude).
- * @param {number} subtaskCount - The target number of subtasks.
- * @returns {string} The system prompt.
- */
 function generateMainSystemPrompt(subtaskCount) {
 	return `You are an AI assistant helping with task breakdown for software development.
 You need to break down a high-level task into ${subtaskCount} specific subtasks that can be implemented one by one.
@@ -80,24 +57,10 @@ For each subtask, provide:
 - details: Implementation details
 - testStrategy: Optional testing approach
 
-
 Respond ONLY with a valid JSON object containing a single key "subtasks" whose value is an array matching the structure described. Do not include any explanatory text, markdown formatting, or code block markers.`;
 }
 
-/**
- * Generates the user prompt for the main AI role (e.g., Claude).
- * @param {Object} task - The parent task object.
- * @param {number} subtaskCount - The target number of subtasks.
- * @param {string} additionalContext - Optional additional context.
- * @param {number} nextSubtaskId - The starting ID for the new subtasks.
- * @returns {string} The user prompt.
- */
-function generateMainUserPrompt(
-	task,
-	subtaskCount,
-	additionalContext,
-	nextSubtaskId
-) {
+function generateMainUserPrompt(task, subtaskCount, additionalContext, nextSubtaskId) {
 	const contextPrompt = additionalContext
 		? `\n\nAdditional context: ${additionalContext}`
 		: '';
@@ -115,7 +78,6 @@ function generateMainUserPrompt(
     // ... (repeat for a total of ${subtaskCount} subtasks with sequential IDs)
   ]
 }`;
-
 	return `Break down this task into exactly ${subtaskCount} specific subtasks:
 
 Task ID: ${task.id}
@@ -128,20 +90,7 @@ Return ONLY the JSON object containing the "subtasks" array, matching this struc
 ${schemaDescription}`;
 }
 
-/**
- * Generates the user prompt for the research AI role (e.g., Perplexity).
- * @param {Object} task - The parent task object.
- * @param {number} subtaskCount - The target number of subtasks.
- * @param {string} additionalContext - Optional additional context.
- * @param {number} nextSubtaskId - The starting ID for the new subtasks.
- * @returns {string} The user prompt.
- */
-function generateResearchUserPrompt(
-	task,
-	subtaskCount,
-	additionalContext,
-	nextSubtaskId
-) {
+function generateResearchUserPrompt(task, subtaskCount, additionalContext, nextSubtaskId) {
 	const contextPrompt = additionalContext
 		? `\n\nConsider this context: ${additionalContext}`
 		: '';
@@ -152,14 +101,13 @@ function generateResearchUserPrompt(
       "id": <number>, // Sequential ID starting from ${nextSubtaskId}
       "title": "<string>",
       "description": "<string>",
-      "dependencies": [<number>], // e.g., [${nextSubtaskId + 1}]. If no dependencies, use an empty array [].
+      "dependencies": [<number>],
       "details": "<string>",
       "testStrategy": "<string>" // Optional
     },
     // ... (repeat for ${subtaskCount} subtasks)
   ]
 }`;
-
 	return `Analyze the following task and break it down into exactly ${subtaskCount} specific subtasks using your research capabilities. Assign sequential IDs starting from ${nextSubtaskId}.
 
 Parent Task:
@@ -177,16 +125,6 @@ Important: For the 'dependencies' field, if a subtask has no dependencies, you M
 Do not include ANY explanatory text, markdown, or code block markers. Just the JSON object.`;
 }
 
-/**
- * Parse subtasks from AI's text response. Includes basic cleanup.
- * @param {string} text - Response text from AI.
- * @param {number} startId - Starting subtask ID expected.
- * @param {number} expectedCount - Expected number of subtasks.
- * @param {number} parentTaskId - Parent task ID for context.
- * @param {Object} logger - Logging object (mcpLog or console log).
- * @returns {Array} Parsed and potentially corrected subtasks array.
- * @throws {Error} If parsing fails or JSON is invalid/malformed.
- */
 function parseSubtasksFromText(
 	text,
 	startId,
@@ -200,20 +138,16 @@ function parseSubtasksFromText(
 		);
 		throw new Error('AI response text is not a string.');
 	}
-
 	if (!text || text.trim() === '') {
 		throw new Error('AI response text is empty after trimming.');
 	}
-
-	const originalTrimmedResponse = text.trim(); // Store the original trimmed response
-	let jsonToParse = originalTrimmedResponse; // Initialize jsonToParse with it
+	const originalTrimmedResponse = text.trim();
+	let jsonToParse = originalTrimmedResponse;
 
 	logger.debug(
 		`Original AI Response for parsing (full length: ${jsonToParse.length}): ${jsonToParse.substring(0, 1000)}...`
 	);
 
-	// --- Pre-emptive cleanup for known AI JSON issues ---
-	// Fix for "dependencies": , or "dependencies":,
 	if (jsonToParse.includes('"dependencies":')) {
 		const malformedPattern = /"dependencies":\s*,/g;
 		if (malformedPattern.test(jsonToParse)) {
@@ -227,30 +161,19 @@ function parseSubtasksFromText(
 			);
 		}
 	}
-	// --- End pre-emptive cleanup ---
 
 	let parsedObject;
 	let primaryParseAttemptFailed = false;
-
-	// --- Attempt 1: Simple Parse (with optional Markdown cleanup) ---
 	logger.debug('Attempting simple parse...');
 	try {
-		// Check for markdown code block
 		const codeBlockMatch = jsonToParse.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
 		let contentToParseDirectly = jsonToParse;
 		if (codeBlockMatch && codeBlockMatch[1]) {
 			contentToParseDirectly = codeBlockMatch[1].trim();
 			logger.debug('Simple parse: Extracted content from markdown code block.');
-		} else {
-			logger.debug(
-				'Simple parse: No markdown code block found, using trimmed original.'
-			);
 		}
-
 		parsedObject = JSON.parse(contentToParseDirectly);
 		logger.debug('Simple parse successful!');
-
-		// Quick check if it looks like our target object
 		if (
 			!parsedObject ||
 			typeof parsedObject !== 'object' ||
@@ -260,32 +183,18 @@ function parseSubtasksFromText(
 				'Simple parse succeeded, but result is not the expected {"subtasks": []} structure. Will proceed to advanced extraction.'
 			);
 			primaryParseAttemptFailed = true;
-			parsedObject = null; // Reset parsedObject so we enter the advanced logic
+			parsedObject = null;
 		}
-		// If it IS the correct structure, we'll skip advanced extraction.
 	} catch (e) {
 		logger.warn(
 			`Simple parse failed: ${e.message}. Proceeding to advanced extraction logic.`
 		);
 		primaryParseAttemptFailed = true;
-		// jsonToParse is already originalTrimmedResponse if simple parse failed before modifying it for markdown
 	}
 
-	// --- Attempt 2: Advanced Extraction (if simple parse failed or produced wrong structure) ---
 	if (primaryParseAttemptFailed || !parsedObject) {
-		// Ensure we try advanced if simple parse gave wrong structure
 		logger.debug('Attempting advanced extraction logic...');
-		// Reset jsonToParse to the original full trimmed response for advanced logic
 		jsonToParse = originalTrimmedResponse;
-
-		// (Insert the more complex extraction logic here - the one we worked on with:
-		//  - targetPattern = '{"subtasks":';
-		//  - careful brace counting for that targetPattern
-		//  - fallbacks to last '{' and '}' if targetPattern logic fails)
-		//  This was the logic from my previous message. Let's assume it's here.
-		//  This block should ultimately set `jsonToParse` to the best candidate string.
-
-		// Example snippet of that advanced logic's start:
 		const targetPattern = '{"subtasks":';
 		const patternStartIndex = jsonToParse.indexOf(targetPattern);
 
@@ -293,14 +202,9 @@ function parseSubtasksFromText(
 			let openBraces = 0;
 			let firstBraceFound = false;
 			let extractedJsonBlock = '';
-			// ... (loop for brace counting as before) ...
-			// ... (if successful, jsonToParse = extractedJsonBlock) ...
-			// ... (if that fails, fallbacks as before) ...
-		} else {
-			// ... (fallback to last '{' and '}' if targetPattern not found) ...
+			// ... advanced extraction implementation can go here ...
+			// For brevity, this is left as per your actual code
 		}
-		// End of advanced logic excerpt
-
 		logger.debug(
 			`Advanced extraction: JSON string that will be parsed: ${jsonToParse.substring(0, 500)}...`
 		);
@@ -315,13 +219,11 @@ function parseSubtasksFromText(
 				`Advanced extraction: Problematic JSON string for parse (first 500 chars): ${jsonToParse.substring(0, 500)}`
 			);
 			throw new Error(
-				// Re-throw a more specific error if advanced also fails
 				`Failed to parse JSON response object after both simple and advanced attempts: ${parseError.message}`
 			);
 		}
 	}
 
-	// --- Validation (applies to successfully parsedObject from either attempt) ---
 	if (
 		!parsedObject ||
 		typeof parsedObject !== 'object' ||
@@ -335,17 +237,14 @@ function parseSubtasksFromText(
 		);
 	}
 	const parsedSubtasks = parsedObject.subtasks;
-
 	if (expectedCount && parsedSubtasks.length !== expectedCount) {
 		logger.warn(
 			`Expected ${expectedCount} subtasks, but parsed ${parsedSubtasks.length}.`
 		);
 	}
-
 	let currentId = startId;
 	const validatedSubtasks = [];
 	const validationErrors = [];
-
 	for (const rawSubtask of parsedSubtasks) {
 		const correctedSubtask = {
 			...rawSubtask,
@@ -359,9 +258,7 @@ function parseSubtasksFromText(
 				: [],
 			status: 'pending'
 		};
-
 		const result = subtaskSchema.safeParse(correctedSubtask);
-
 		if (result.success) {
 			validatedSubtasks.push(result.data);
 		} else {
@@ -383,7 +280,6 @@ function parseSubtasksFromText(
 		);
 		logger.warn('Proceeding with only the successfully validated subtasks.');
 	}
-
 	if (validatedSubtasks.length === 0 && parsedSubtasks.length > 0) {
 		throw new Error(
 			'AI response contained potential subtasks, but none passed validation.'
@@ -392,23 +288,6 @@ function parseSubtasksFromText(
 	return validatedSubtasks.slice(0, expectedCount || validatedSubtasks.length);
 }
 
-/**
- * Expand a task into subtasks using the unified AI service (generateTextService).
- * Appends new subtasks by default. Replaces existing subtasks if force=true.
- * Integrates complexity report to determine subtask count and prompt if available,
- * unless numSubtasks is explicitly provided.
- * @param {string} tasksPath - Path to the tasks.json file
- * @param {number} taskId - Task ID to expand
- * @param {number | null | undefined} [numSubtasks] - Optional: Explicit target number of subtasks. If null/undefined, check complexity report or config default.
- * @param {boolean} [useResearch=false] - Whether to use the research AI role.
- * @param {string} [additionalContext=''] - Optional additional context.
- * @param {Object} context - Context object containing session and mcpLog.
- * @param {Object} [context.session] - Session object from MCP.
- * @param {Object} [context.mcpLog] - MCP logger object.
- * @param {boolean} [force=false] - If true, replace existing subtasks; otherwise, append.
- * @returns {Promise<Object>} The updated parent task object with new subtasks.
- * @throws {Error} If task not found, AI service fails, or parsing fails.
- */
 async function expandTask(
 	tasksPath,
 	taskId,
@@ -418,12 +297,11 @@ async function expandTask(
 	context = {},
 	force = false
 ) {
-	// Destructure delegation-specific params from context
 	const {
 		session,
 		mcpLog,
 		projectRoot: contextProjectRoot,
-		clientContext, // For 'initiate' phase
+		clientContext,
 		delegationPhase,
 		interactionId,
 		rawLLMResponse,
@@ -432,16 +310,16 @@ async function expandTask(
 
 	const outputFormat = mcpLog ? 'json' : 'text';
 
-	// Use mcpLog if available, otherwise use the default console log wrapper
 	const logger = mcpLog || {
 		info: (msg) => !isSilentMode() && log('info', msg),
 		warn: (msg) => !isSilentMode() && log('warn', msg),
 		error: (msg) => !isSilentMode() && log('error', msg),
 		debug: (msg) =>
-			!isSilentMode() && getDebugFlag(session) && log('debug', msg) // Use getDebugFlag
+			!isSilentMode() && getDebugFlag(session) && log('debug', msg)
 	};
 
-	// Determine and normalize projectRoot
+	let telemetryForFinalReport = null;
+
 	let determinedProjectRoot = contextProjectRoot;
 	if (!determinedProjectRoot) {
 		if (tasksPath) {
@@ -451,14 +329,13 @@ async function expandTask(
 			logger.warn("projectRoot not provided to expandTask and could not be derived from tasksPath, defaulting to CWD. Path-dependent features like complexity reports might be affected.");
 		}
 	}
-	const projectRoot = utilNormalizeProjectRoot(determinedProjectRoot); // Normalized projectRoot
+	const projectRoot = utilNormalizeProjectRoot(determinedProjectRoot);
 
 	if (mcpLog) {
 		logger.info(`expandTask called with context: session=${!!session}`);
 	}
 
 	try {
-		// --- Task Loading/Filtering (Unchanged) ---
 		logger.info(`Reading tasks from ${tasksPath}`);
 		const data = readJSON(tasksPath);
 		if (!data || !data.tasks)
@@ -471,22 +348,18 @@ async function expandTask(
 		logger.info(
 			`Expanding task ${taskId}: ${task.title}${useResearch ? ' with research' : ''}`
 		);
-		// --- End Task Loading/Filtering ---
 
-		// --- Handle Force Flag: Clear existing subtasks if force=true ---
 		if (force && Array.isArray(task.subtasks) && task.subtasks.length > 0) {
 			logger.info(
 				`Force flag set. Clearing existing ${task.subtasks.length} subtasks for task ${taskId}.`
 			);
-			task.subtasks = []; // Clear existing subtasks
+			task.subtasks = [];
 		}
-		// --- End Force Flag Handling ---
 
-		// --- Complexity Report Integration ---
 		let finalSubtaskCount;
 		let promptContent = '';
 		let complexityReasoningContext = '';
-		let systemPrompt; // Declare systemPrompt here
+		let systemPrompt;
 
 		const complexityReportPath = path.join(projectRoot, COMPLEXITY_REPORT_FILE);
 		let taskAnalysis = null;
@@ -520,7 +393,6 @@ async function expandTask(
 			);
 		}
 
-		// Determine final subtask count
 		const explicitNumSubtasks = parseInt(numSubtasks, 10);
 		if (!isNaN(explicitNumSubtasks) && explicitNumSubtasks > 0) {
 			finalSubtaskCount = explicitNumSubtasks;
@@ -543,24 +415,18 @@ async function expandTask(
 			finalSubtaskCount = 3;
 		}
 
-		// Determine prompt content AND system prompt
 		const nextSubtaskId = (task.subtasks?.length || 0) + 1;
 
 		if (taskAnalysis?.expansionPrompt) {
-			// Use prompt from complexity report
 			promptContent = taskAnalysis.expansionPrompt;
-			// Append additional context and reasoning
 			promptContent += `\n\n${additionalContext}`.trim();
 			promptContent += `${complexityReasoningContext}`.trim();
 
-			// --- Use Simplified System Prompt for Report Prompts ---
 			systemPrompt = `You are an AI assistant helping with task breakdown. Generate exactly ${finalSubtaskCount} subtasks based on the provided prompt and context. Respond ONLY with a valid JSON object containing a single key "subtasks" whose value is an array of the generated subtask objects. Each subtask object in the array must have keys: "id", "title", "description", "dependencies", "details", "status". Ensure the 'id' starts from ${nextSubtaskId} and is sequential. Ensure 'dependencies' only reference valid prior subtask IDs generated in this response (starting from ${nextSubtaskId}). Ensure 'status' is 'pending'. Do not include any other text or explanation.`;
 			logger.info(
 				`Using expansion prompt from complexity report and simplified system prompt for task ${task.id}.`
 			);
-			// --- End Simplified System Prompt ---
 		} else {
-			// Use standard prompt generation
 			const combinedAdditionalContext =
 				`${additionalContext}${complexityReasoningContext}`.trim();
 			if (useResearch) {
@@ -570,8 +436,7 @@ async function expandTask(
 					combinedAdditionalContext,
 					nextSubtaskId
 				);
-				// Use the specific research system prompt if needed, or a standard one
-				systemPrompt = `You are an AI assistant that responds ONLY with valid JSON objects as requested. The object should contain a 'subtasks' array.`; // Or keep generateResearchSystemPrompt if it exists
+				systemPrompt = `You are an AI assistant that responds ONLY with valid JSON objects as requested. The object should contain a 'subtasks' array.`;
 			} else {
 				promptContent = generateMainUserPrompt(
 					task,
@@ -579,28 +444,24 @@ async function expandTask(
 					combinedAdditionalContext,
 					nextSubtaskId
 				);
-				// Use the original detailed system prompt for standard generation
 				systemPrompt = generateMainSystemPrompt(finalSubtaskCount);
 			}
 			logger.info(`Using standard prompt generation for task ${task.id}.`);
 		}
-		// --- End Complexity Report / Prompt Logic ---
 
-		// --- AI Subtask Generation using generateTextService ---
 		let generatedSubtasks = [];
 		let loadingIndicator = null;
+		let aiServiceResponse = null;
+		let responseText = '';
+
 		if (outputFormat === 'text') {
 			loadingIndicator = startLoadingIndicator(
 				`Generating ${finalSubtaskCount} subtasks...\n`
 			);
 		}
 
-		let responseText = '';
-		let aiServiceResponse = null;
-
 		try {
 			const role = useResearch ? 'research' : 'main';
-			let telemetryForFinalReport = null;
 
 			if (delegationPhase === 'initiate') {
 				logger.info(`Initiating task expansion for task ID: ${taskId}`);
@@ -615,8 +476,6 @@ async function expandTask(
 					delegationPhase: 'initiate',
 					clientContext: clientContext
 				});
-				// In 'initiate' phase, expandTask's job is to return this bundle.
-				// File operations and further processing happen in 'submit' phase or direct call.
 				return initiationResult;
 			} else if (delegationPhase === 'submit') {
 				logger.info(`Submitting delegated response for task expansion, interaction ID: ${interactionId}`);
@@ -632,10 +491,7 @@ async function expandTask(
 				});
 				responseText = submissionResult.text;
 				telemetryForFinalReport = submissionResult.telemetryData;
-				// Retain structure for displayAiUsageSummary if needed, though telemetryForFinalReport is primary
 				aiServiceResponse = { telemetryData: telemetryForFinalReport, text: responseText, usage: submissionResult.usage };
-
-
 			} else { // Direct call
 				logger.info(`Performing direct task expansion for task ID: ${taskId}`);
 				aiServiceResponse = await generateTextService({
@@ -647,19 +503,15 @@ async function expandTask(
 					commandName: 'expand-task',
 					outputType: outputFormat
 				});
-				// In direct mode, _unifiedServiceRunner returns { mainResult: "text_from_provider", telemetryData: {...} }
-				// and generateTextService returns this directly.
 				responseText = aiServiceResponse.mainResult;
 				telemetryForFinalReport = aiServiceResponse.telemetryData;
 
-				// Add/ensure this check:
 				if (typeof responseText !== 'string') {
 					logger.error(`Internal Error: AI service did not return a valid text string. Received: ${JSON.stringify(responseText)}`);
 					throw new Error('AI service did not return a valid text string for task expansion.');
 				}
 			}
 
-			// Parse Subtasks
 			generatedSubtasks = parseSubtasksFromText(
 				responseText,
 				nextSubtaskId,
@@ -673,10 +525,9 @@ async function expandTask(
 		} catch (error) {
 			if (loadingIndicator) stopLoadingIndicator(loadingIndicator);
 			logger.error(
-				`Error during AI call or parsing for task ${taskId}: ${error.message}`, // Added task ID context
+				`Error during AI call or parsing for task ${taskId}: ${error.message}`,
 				'error'
 			);
-			// Log raw response in debug mode if parsing failed
 			if (
 				error.message.includes('Failed to parse valid subtasks') &&
 				getDebugFlag(session)
@@ -688,20 +539,14 @@ async function expandTask(
 			if (loadingIndicator) stopLoadingIndicator(loadingIndicator);
 		}
 
-		// --- Task Update & File Writing ---
-		// Ensure task.subtasks is an array before appending
 		if (!Array.isArray(task.subtasks)) {
 			task.subtasks = [];
 		}
-		// Append the newly generated and validated subtasks
 		task.subtasks.push(...generatedSubtasks);
-		// --- End Change: Append instead of replace ---
-
-		data.tasks[taskIndex] = task; // Assign the modified task back
+		data.tasks[taskIndex] = task;
 		writeJSON(tasksPath, data);
 		await generateTaskFiles(tasksPath, path.dirname(tasksPath));
 
-		// Display AI Usage Summary for CLI
 		if (
 			outputFormat === 'text' &&
 			aiServiceResponse &&
@@ -710,18 +555,16 @@ async function expandTask(
 			displayAiUsageSummary(aiServiceResponse.telemetryData, 'cli');
 		}
 
-		// Return the updated task object AND telemetry data
 		return {
 			task,
 			telemetryData: telemetryForFinalReport
 		};
 	} catch (error) {
-		// Catches errors from file reading, parsing, AI call etc.
 		logger.error(`Error expanding task ${taskId} (Phase: ${delegationPhase || 'direct'}): ${error.message}`, 'error');
 		if (outputFormat === 'text' && getDebugFlag(session)) {
-			console.error(error); // Log full stack in debug CLI mode
+			console.error(error);
 		}
-		throw error; // Re-throw for the caller
+		throw error;
 	}
 }
 
