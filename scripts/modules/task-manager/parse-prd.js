@@ -168,11 +168,47 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}, context = {}
 			}
 		}
 
-		report(`Reading PRD content from ${prdPath}`, 'info');
-		const prdContent = fs.readFileSync(prdPath, 'utf8');
-		if (!prdContent) {
-			throw new Error(`Input file ${prdPath} is empty or could not be read.`);
+		// Determine prdContent: prioritize direct content from options, then fall back to prdPath.
+		let prdContent;
+		const directPrdContent = options.prdContent; // Content passed directly in options
+
+		if (directPrdContent && typeof directPrdContent === 'string' && directPrdContent.trim() !== '') {
+			report(`Using PRD content directly provided via options.prdContent.`, 'info');
+			prdContent = directPrdContent;
+		} else if (prdPath && typeof prdPath === 'string' && prdPath.toLowerCase() !== 'direct_content' && prdPath.toLowerCase() !== 'delegated_submission') {
+			// Only read from prdPath if directPrdContent was not usable AND
+			// prdPath is not a placeholder like 'direct_content' or 'delegated_submission'.
+			// The 'delegated_submission' check is because in the submit phase, prdPath might be a nominal value.
+			report(`Reading PRD content from file path: ${prdPath}`, 'info');
+			if (!fs.existsSync(prdPath)) {
+				throw new Error(`Input PRD file not found at path: ${prdPath}`);
+			}
+			prdContent = fs.readFileSync(prdPath, 'utf8');
+			if (!prdContent || prdContent.trim() === '') {
+				throw new Error(`Input file ${prdPath} is empty or could not be read.`);
+			}
+		} else if (delegationPhase === 'submit') {
+			// In the 'submit' phase, prdContent is not strictly needed to regenerate prompts for the AI call,
+			// as the AI call is already done. It might be needed for metadata or other logic.
+			// If prdPath was nominal (e.g., 'delegated_submission'), we accept that prdContent might be undefined here.
+			// The original prdPath used in 'initiate' is stored in interactionContext if truly needed.
+			report(`PRD content not actively read during 'submit' phase with nominal prdPath: ${prdPath}. Content determined in 'initiate'.`, 'debug');
+		} else {
+			// This case means:
+			// 1. No directPrdContent was provided (or it was empty).
+			// 2. prdPath was not provided, or it was a placeholder like 'direct_content'
+			//    (implying direct content was expected but wasn't valid).
+			// And not in 'submit' phase where content might be optional.
+			throw new Error('No valid PRD content provided. Supply PRD text via `prdContent` option or a valid file path.');
 		}
+
+		// If, after all checks, prdContent is still undefined and we are in a phase that requires it (initiate or direct)
+		if (!prdContent && (delegationPhase === 'initiate' || !delegationPhase)) {
+			// This re-check is crucial if the 'submit' phase logic above allows prdContent to be undefined.
+			// For 'initiate' or direct calls, prdContent MUST be defined by this point.
+			throw new Error('Failed to define PRD content for processing.');
+		}
+
 
 		// Research-specific enhancements to the system prompt
 		const researchPromptAddition = research

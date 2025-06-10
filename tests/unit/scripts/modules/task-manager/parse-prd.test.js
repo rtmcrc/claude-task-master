@@ -546,4 +546,135 @@ describe('parsePRD', () => {
 			).rejects.toThrow("InteractionId and rawLLMResponse are required for 'submit' phase.");
 		});
 	});
+
+	describe('PRD Content Handling', () => {
+		const prdPath = '/fake/project/prd.txt';
+		const tasksPath = '/fake/project/tasks.json';
+		const numTasks = 3;
+		const defaultOptions = {
+			projectRoot: '/fake/project',
+			mcpLog: log,
+			session: {},
+		};
+
+		beforeEach(() => {
+			// Ensure fs.readFileSync is clean unless specifically mocked in a test
+			fs.default.readFileSync.mockReset();
+			fs.default.existsSync.mockReturnValue(true); // Assume paths exist unless specified
+			mockGenerateObjectService.mockResolvedValue({ // Default success for AI call
+				object: { tasks: [{id: 1, title: "Test Task"}] },
+				usage: {},
+				telemetryData: {}
+			});
+		});
+
+		test('should use options.prdContent when provided (direct call)', async () => {
+			const directContent = "PRD content from options";
+			const options = { ...defaultOptions, prdContent: directContent };
+
+			await parsePRD(prdPath, tasksPath, numTasks, options, {}); // Empty context for direct call
+
+			expect(fs.default.readFileSync).not.toHaveBeenCalled();
+			expect(mockGenerateObjectService).toHaveBeenCalledWith(expect.objectContaining({
+				prompt: expect.stringContaining(directContent)
+			}));
+		});
+
+		test('should use options.prdContent when provided (initiate phase)', async () => {
+			const directContent = "PRD content for initiate";
+			const options = { ...defaultOptions, prdContent: directContent, clientContext: {} };
+			const context = { delegationPhase: 'initiate' };
+			mockGenerateObjectService.mockResolvedValueOnce({ interactionId: 'id-initiate' });
+
+
+			await parsePRD(prdPath, tasksPath, numTasks, options, context);
+
+			expect(fs.default.readFileSync).not.toHaveBeenCalled();
+			expect(mockGenerateObjectService).toHaveBeenCalledWith(expect.objectContaining({
+				prompt: expect.stringContaining(directContent),
+				delegationPhase: 'initiate'
+			}));
+		});
+
+		test('should read from prdPath if options.prdContent is not provided (direct call)', async () => {
+			const fileContent = "PRD text from file";
+			fs.default.readFileSync.mockReturnValue(fileContent);
+			const options = { ...defaultOptions }; // No prdContent
+
+			await parsePRD(prdPath, tasksPath, numTasks, options, {});
+
+			expect(fs.default.readFileSync).toHaveBeenCalledWith(prdPath, 'utf8');
+			expect(mockGenerateObjectService).toHaveBeenCalledWith(expect.objectContaining({
+				prompt: expect.stringContaining(fileContent)
+			}));
+		});
+
+		test('should read from prdPath if options.prdContent is not provided (initiate phase)', async () => {
+			const fileContent = "PRD text from file for initiate";
+			fs.default.readFileSync.mockReturnValue(fileContent);
+			const options = { ...defaultOptions, clientContext: {} }; // No prdContent
+			const context = { delegationPhase: 'initiate' };
+			mockGenerateObjectService.mockResolvedValueOnce({ interactionId: 'id-initiate-file' });
+
+			await parsePRD(prdPath, tasksPath, numTasks, options, context);
+
+			expect(fs.default.readFileSync).toHaveBeenCalledWith(prdPath, 'utf8');
+			expect(mockGenerateObjectService).toHaveBeenCalledWith(expect.objectContaining({
+				prompt: expect.stringContaining(fileContent),
+				delegationPhase: 'initiate'
+			}));
+		});
+
+		test('should throw error if prdPath does not exist and prdContent is not provided (direct call)', async () => {
+			fs.default.existsSync.mockReturnValue(false); // File does not exist
+			const options = { ...defaultOptions };
+
+			await expect(
+				parsePRD(prdPath, tasksPath, numTasks, options, {})
+			).rejects.toThrow(`Input PRD file not found at path: ${prdPath}`);
+			expect(fs.default.readFileSync).not.toHaveBeenCalled();
+		});
+
+		test('should throw error if prdPath does not exist and prdContent is not provided (initiate phase)', async () => {
+			fs.default.existsSync.mockReturnValue(false); // File does not exist
+			const options = { ...defaultOptions, clientContext: {} };
+			const context = { delegationPhase: 'initiate' };
+
+			await expect(
+				parsePRD(prdPath, tasksPath, numTasks, options, context)
+			).rejects.toThrow(`Input PRD file not found at path: ${prdPath}`);
+			expect(fs.default.readFileSync).not.toHaveBeenCalled();
+		});
+
+		test('should throw error if no prdContent and prdPath is placeholder (direct_content)', async () => {
+			const options = { ...defaultOptions };
+			await expect(
+				parsePRD('direct_content', tasksPath, numTasks, options, {})
+			).rejects.toThrow('No valid PRD content provided.');
+		});
+
+		test('should throw error if no prdContent and prdPath is undefined (initiate phase)', async () => {
+			const options = { ...defaultOptions, clientContext: {} };
+			const context = { delegationPhase: 'initiate' };
+			await expect(
+				parsePRD(undefined, tasksPath, numTasks, options, context)
+			).rejects.toThrow('No valid PRD content provided.');
+		});
+
+		test('should not attempt to read PRD content in "submit" phase if prdPath is nominal', async () => {
+			const nominalPrdPath = 'delegated_submission';
+			const submitContext = {
+				delegationPhase: 'submit',
+				interactionId: 'delegate-id-submit-no-read',
+				rawLLMResponse: JSON.stringify(sampleClaudeResponse),
+			};
+			// submitDelegatedObjectResponseService is already mocked to return a valid object
+
+			await parsePRD(nominalPrdPath, tasksPath, numTasks, defaultOptions, submitContext);
+
+			expect(fs.default.readFileSync).not.toHaveBeenCalled(); // Crucial assertion
+			expect(mockSubmitDelegatedObjectResponseService).toHaveBeenCalled(); // Ensure it went through submit
+			expect(writeJSON).toHaveBeenCalled(); // Ensure downstream processing happened
+		});
+	});
 });
