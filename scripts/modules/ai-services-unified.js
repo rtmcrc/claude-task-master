@@ -219,11 +219,11 @@ async function _unifiedServiceRunner(serviceType, params) {
 
 			if (intendedProviderName && intendedModelId) {
 				intendedRoleParams = getParametersForRole(role, effectiveProjectRoot);
-				const providerNeedsApiKey = !['ollama', 'bedrock'].includes(intendedProviderName?.toLowerCase());
-				if (providerNeedsApiKey && !isApiKeySet(intendedProviderName, session, effectiveProjectRoot)) {
-					log('warn', `Intended provider ${intendedProviderName} for role ${role} has no API key set. Skipping for 'initiate' phase.`);
-					continue;
-				}
+				// const providerNeedsApiKey = !['ollama', 'bedrock'].includes(intendedProviderName?.toLowerCase());
+				// if (providerNeedsApiKey && !isApiKeySet(intendedProviderName, session, effectiveProjectRoot)) {
+				// log('warn', `Intended provider ${intendedProviderName} for role ${role} has no API key set. Skipping for 'initiate' phase.`);
+				// continue;
+				// }
 				foundValidConfigForInitiate = true;
 				break;
 			}
