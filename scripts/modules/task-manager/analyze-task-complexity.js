@@ -413,9 +413,15 @@ async function analyzeTaskComplexity(options, context = {}) {
 					commandName: 'analyze-complexity',
 					outputType: mcpLog ? 'mcp' : 'cli'
 				});
-				// generateTextService returns { text, usage, telemetryData }
-				responseText = aiServiceResponse.text;
+				// _unifiedServiceRunner returns { mainResult: "text_from_provider", telemetryData: {...} }
+				// and generateTextService returns this directly.
+				responseText = aiServiceResponse.mainResult;
 				telemetryForFinalReport = aiServiceResponse.telemetryData;
+
+				if (typeof responseText !== 'string' || responseText.trim() === '') {
+					reportLog(`Internal Error: AI service did not return a valid non-empty text string for complexity analysis. Received: ${responseText}`, 'error');
+					throw new Error('AI service did not return a valid non-empty text string for complexity analysis.');
+				}
 			}
 
 

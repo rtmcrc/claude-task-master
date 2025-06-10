@@ -341,8 +341,17 @@ Guidelines:
 				commandName: 'parse-prd',
 				outputType: isMCP ? 'mcp' : 'cli'
 			});
-			generatedData = aiServiceResponse.object; // Access the 'object' property
+			// --- MODIFICATION START ---
+			// Original line: generatedData = aiServiceResponse.object;
+			generatedData = aiServiceResponse.mainResult;
 			telemetryForFinalReport = aiServiceResponse.telemetryData;
+
+			if (!generatedData) {
+				logFn.error('Internal Error: AI service returned no mainResult.');
+				throw new Error('AI service returned no mainResult after validation.');
+			}
+			// The existing check for generatedData.tasks will follow.
+			// --- MODIFICATION END ---
 		}
 
 		// Create the directory if it doesn't exist
@@ -355,14 +364,16 @@ Guidelines:
 		);
 
 		// Validate and Process Tasks
-		// generatedData is now populated from either submitDelegatedObjectResponseService or generateObjectService
+		// generatedData is now populated from either submitDelegatedObjectResponseService or generateObjectService (or aiServiceResponse.mainResult for direct)
 
-		if (!generatedData || !Array.isArray(generatedData.tasks)) {
+		// The check for !generatedData was added above for the direct call path.
+		// The check below handles if generatedData exists but is missing the tasks array.
+		if (!Array.isArray(generatedData.tasks)) {
 			logFn.error(
-				`Internal Error: AI service processing returned unexpected data structure: ${JSON.stringify(generatedData)}`
+				`Internal Error: AI service mainResult is missing 'tasks' array: ${JSON.stringify(generatedData)}`
 			);
 			throw new Error(
-				'AI service returned unexpected data structure after validation.'
+				"AI service mainResult is missing 'tasks' array after validation."
 			);
 		}
 

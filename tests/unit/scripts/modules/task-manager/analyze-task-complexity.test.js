@@ -400,4 +400,39 @@ describe('analyzeTaskComplexity', () => {
 			expect.stringContaining('API Error')
 		);
 	});
+
+	test('should throw error if AI service does not return valid non-empty text string in direct mode', async () => {
+		const options = {
+			file: 'tasks/tasks.json',
+			output: 'scripts/task-complexity-report.json',
+		};
+		const mockMcpLog = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(), success: jest.fn() };
+
+		// Test case 1: mainResult is null
+		generateTextService.mockResolvedValueOnce({ mainResult: null, telemetryData: {} });
+		await expect(analyzeTaskComplexity(options, { mcpLog: mockMcpLog })).rejects.toThrow(
+			'AI service did not return a valid non-empty text string for complexity analysis.'
+		);
+		expect(mockMcpLog.error).toHaveBeenCalledWith(expect.stringContaining('AI service did not return a valid non-empty text string'));
+
+		jest.clearAllMocks(); // Clear mocks for next case
+		readJSON.mockReturnValue(JSON.parse(JSON.stringify(sampleTasks))); // Re-mock readJSON
+
+		// Test case 2: mainResult is an empty string
+		generateTextService.mockResolvedValueOnce({ mainResult: '   ', telemetryData: {} });
+		await expect(analyzeTaskComplexity(options, { mcpLog: mockMcpLog })).rejects.toThrow(
+			'AI service did not return a valid non-empty text string for complexity analysis.'
+		);
+		expect(mockMcpLog.error).toHaveBeenCalledWith(expect.stringContaining('AI service did not return a valid non-empty text string'));
+
+		jest.clearAllMocks(); // Clear mocks for next case
+		readJSON.mockReturnValue(JSON.parse(JSON.stringify(sampleTasks))); // Re-mock readJSON
+
+		// Test case 3: mainResult is not a string
+		generateTextService.mockResolvedValueOnce({ mainResult: { data: "wrong type" }, telemetryData: {} });
+		await expect(analyzeTaskComplexity(options, { mcpLog: mockMcpLog })).rejects.toThrow(
+			'AI service did not return a valid non-empty text string for complexity analysis.'
+		);
+		expect(mockMcpLog.error).toHaveBeenCalledWith(expect.stringContaining('AI service did not return a valid non-empty text string'));
+	});
 });

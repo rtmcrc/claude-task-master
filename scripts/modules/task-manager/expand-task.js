@@ -638,9 +638,16 @@ async function expandTask(
 					commandName: 'expand-task',
 					outputType: outputFormat
 				});
-				// In direct mode, generateTextService returns { text, usage, telemetryData }
-				responseText = aiServiceResponse.text;
+				// In direct mode, _unifiedServiceRunner returns { mainResult: "text_from_provider", telemetryData: {...} }
+				// and generateTextService returns this directly.
+				responseText = aiServiceResponse.mainResult;
 				telemetryForFinalReport = aiServiceResponse.telemetryData;
+
+				// Add/ensure this check:
+				if (typeof responseText !== 'string') {
+					logger.error(`Internal Error: AI service did not return a valid text string. Received: ${JSON.stringify(responseText)}`);
+					throw new Error('AI service did not return a valid text string for task expansion.');
+				}
 			}
 
 			// Parse Subtasks

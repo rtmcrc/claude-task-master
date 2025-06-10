@@ -163,11 +163,11 @@ describe('parsePRD', () => {
 		fs.default.readFileSync.mockReturnValue(samplePRDContent);
 		fs.default.existsSync.mockReturnValue(true);
 		path.default.dirname.mockReturnValue('tasks');
-		// Update default mock for generateObjectService to new return structure
+		// Default mock for generateObjectService (direct call scenario)
 		mockGenerateObjectService.mockResolvedValue({
-			object: sampleClaudeResponse, // mainResult is now object
-			usage: { inputTokens: 10, outputTokens: 100 },
+			mainResult: sampleClaudeResponse,
 			telemetryData: { some: 'telemetry' }
+			// usage is part of the provider's response, not directly in _unifiedServiceRunner's return for direct calls
 		});
 		mockSubmitDelegatedObjectResponseService.mockResolvedValue({ // For submit phase tests
 			object: sampleClaudeResponse,
@@ -411,8 +411,7 @@ describe('parsePRD', () => {
 
 		// Mock generateObjectService to return new tasks with continuing IDs
 		mockGenerateObjectService.mockResolvedValueOnce({
-			object: newTasksWithContinuedIds, // Changed from mainResult
-			usage: {},
+			mainResult: newTasksWithContinuedIds, // For direct call path
 			telemetryData: { appendTelemetry: 'data' }
 		});
 
@@ -561,9 +560,9 @@ describe('parsePRD', () => {
 			// Ensure fs.readFileSync is clean unless specifically mocked in a test
 			fs.default.readFileSync.mockReset();
 			fs.default.existsSync.mockReturnValue(true); // Assume paths exist unless specified
-			mockGenerateObjectService.mockResolvedValue({ // Default success for AI call
-				object: { tasks: [{id: 1, title: "Test Task"}] },
-				usage: {},
+			// Default success for AI call in PRD Content Handling tests (direct call)
+			mockGenerateObjectService.mockResolvedValue({
+				mainResult: { tasks: [{id: 1, title: "Test Task"}] }, // Correct structure for direct call
 				telemetryData: {}
 			});
 		});
@@ -584,7 +583,11 @@ describe('parsePRD', () => {
 			const directContent = "PRD content for initiate";
 			const options = { ...defaultOptions, prdContent: directContent, clientContext: {} };
 			const context = { delegationPhase: 'initiate' };
-			mockGenerateObjectService.mockResolvedValueOnce({ interactionId: 'id-initiate' });
+			// For initiate phase, generateObjectService returns the initiate bundle directly
+			mockGenerateObjectService.mockResolvedValueOnce({
+				interactionId: 'id-initiate',
+				aiServiceRequest: { prompt: expect.stringContaining(directContent) }
+			});
 
 
 			await parsePRD(prdPath, tasksPath, numTasks, options, context);
@@ -614,7 +617,11 @@ describe('parsePRD', () => {
 			fs.default.readFileSync.mockReturnValue(fileContent);
 			const options = { ...defaultOptions, clientContext: {} }; // No prdContent
 			const context = { delegationPhase: 'initiate' };
-			mockGenerateObjectService.mockResolvedValueOnce({ interactionId: 'id-initiate-file' });
+			// For initiate phase, generateObjectService returns the initiate bundle directly
+			mockGenerateObjectService.mockResolvedValueOnce({
+				interactionId: 'id-initiate-file',
+				aiServiceRequest: { prompt: expect.stringContaining(fileContent) }
+			});
 
 			await parsePRD(prdPath, tasksPath, numTasks, options, context);
 
