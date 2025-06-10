@@ -217,5 +217,47 @@ describe('Task Manager - expandTask', () => {
 				expandTask(tasksPath, 1, 1, false, '', baseContext, false)
 			).rejects.toThrow('AI service did not return a valid text string for task expansion.');
 		});
+
+		test('should use complexity report when available', async () => {
+			const llmTextOutput = JSON.stringify({
+				subtasks: [{ id: 1, title: 'LLM Subtask from Complexity Prompt', description: 'Desc', dependencies: [], details: 'Details', status: 'pending' }],
+			});
+			const mockTelemetry = { complexTele: 'data' };
+			mockGenerateTextService.mockResolvedValue({
+				mainResult: llmTextOutput,
+				telemetryData: mockTelemetry,
+			});
+
+			const complexityReportData = {
+				complexityAnalysis: [{
+					taskId: 1, // Matches baseTask.id
+					recommendedSubtasks: 1,
+					expansionPrompt: "Special prompt from complexity report",
+					reasoning: "This task is very complex."
+				}]
+			};
+
+			// Dynamically import path for constructing expected path, as it's mocked for the SUT
+			const pathModule = await import('path');
+			const { COMPLEXITY_REPORT_FILE } = await import('../../../../../src/constants/paths.js');
+			const expectedComplexityReportPath = pathModule.default.join(baseContext.projectRoot, COMPLEXITY_REPORT_FILE);
+
+			mockFsExistsSync.mockImplementation(p => p === expectedComplexityReportPath);
+			mockReadJSON.mockImplementation(p => {
+				if (p === tasksPath) return { tasks: [JSON.parse(JSON.stringify(baseTask))] };
+				if (p === expectedComplexityReportPath) return complexityReportData;
+				return null;
+			});
+
+			const result = await expandTask(tasksPath, 1, null, false, 'user context', baseContext, false);
+
+			expect(mockFsExistsSync).toHaveBeenCalledWith(expectedComplexityReportPath);
+			expect(mockReadJSON).toHaveBeenCalledWith(expectedComplexityReportPath);
+			expect(mockGenerateTextService).toHaveBeenCalledWith(expect.objectContaining({
+				prompt: expect.stringContaining("Special prompt from complexity report\n\nuser context\nComplexity Analysis Reasoning: This task is very complex."),
+			}));
+			expect(result.task.subtasks[0].title).toBe('LLM Subtask from Complexity Prompt');
+			expect(result.telemetryData).toEqual(mockTelemetry);
+		});
 	});
 });

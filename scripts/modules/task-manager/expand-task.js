@@ -440,9 +440,7 @@ async function expandTask(
 		debug: (msg) =>
 			!isSilentMode() && getDebugFlag(session) && log('debug', msg) // Use getDebugFlag
 	};
-	
-	let telemetryForFinalReport = null; // --- FIX: Always declare this at the start
-	
+
 	// Determine and normalize projectRoot
 	let determinedProjectRoot = contextProjectRoot;
 	if (!determinedProjectRoot) {
@@ -454,6 +452,15 @@ async function expandTask(
 		}
 	}
 	const projectRoot = utilNormalizeProjectRoot(determinedProjectRoot); // Normalized projectRoot
+
+	// Use mcpLog if available, otherwise use the default console log wrapper
+	// const logger = mcpLog || { // logger definition moved up
+		info: (msg) => !isSilentMode() && log('info', msg),
+		warn: (msg) => !isSilentMode() && log('warn', msg),
+		error: (msg) => !isSilentMode() && log('error', msg),
+		debug: (msg) =>
+			!isSilentMode() && getDebugFlag(session) && log('debug', msg) // Use getDebugFlag
+	};
 
 	if (mcpLog) {
 		logger.info(`expandTask called with context: session=${!!session}`);
@@ -602,6 +609,7 @@ async function expandTask(
 
 		try {
 			const role = useResearch ? 'research' : 'main';
+			let telemetryForFinalReport = null;
 
 			if (delegationPhase === 'initiate') {
 				logger.info(`Initiating task expansion for task ID: ${taskId}`);
@@ -651,7 +659,7 @@ async function expandTask(
 				// In direct mode, _unifiedServiceRunner returns { mainResult: "text_from_provider", telemetryData: {...} }
 				// and generateTextService returns this directly.
 				responseText = aiServiceResponse.mainResult;
-				telemetryForFinalReport = aiServiceResponse ? aiServiceResponse.telemetryData : null; // --- FIX: Always assign, fallback to null if undefined
+				telemetryForFinalReport = aiServiceResponse.telemetryData;
 
 				// Add/ensure this check:
 				if (typeof responseText !== 'string') {
@@ -714,7 +722,7 @@ async function expandTask(
 		// Return the updated task object AND telemetry data
 		return {
 			task,
-			telemetryData: telemetryForFinalReport // --- FIX: this will always be defined (possibly null), no ReferenceError
+			telemetryData: telemetryForFinalReport
 		};
 	} catch (error) {
 		// Catches errors from file reading, parsing, AI call etc.
