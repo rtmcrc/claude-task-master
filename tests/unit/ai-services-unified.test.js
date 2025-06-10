@@ -790,6 +790,78 @@ describe('Unified AI Services', () => {
 				// For now, this test focuses on the returned bundle and no LLM call.
 			});
 
+			test('should return initiation bundle for generateTextService with delegationPhase "initiate" even if API key for intended provider is missing', async () => {
+				// Setup: Configure a main provider that needs an API key
+				mockGetMainProvider.mockReturnValue('google'); // 'google' requires an API key
+				mockGetMainModelId.mockReturnValue('gemini-pro');
+				mockGetParametersForRole.mockReturnValue({ maxTokens: 1000, temperature: 0.7 });
+
+				// IMPORTANT: Mock isApiKeySet to return false for the 'google' provider
+				mockIsApiKeySet.mockImplementation((providerName, session, projectRoot) => {
+					if (providerName.toLowerCase() === 'google') {
+						return false;
+					}
+					return true; // Other providers might have keys, not relevant here
+				});
+
+				const params = {
+					role: 'main',
+					prompt: 'User prompt for text',
+					systemPrompt: 'System prompt for text',
+					commandName: 'delegated-text-init-no-key',
+					outputType: 'cli',
+					projectRoot: fakeProjectRoot,
+					session: {},
+					delegationPhase: 'initiate',
+					clientContext: { someKey: 'someValueForText' }
+				};
+
+				// Call generateTextService for initiation
+				const result = await ais.generateTextService(params);
+
+				// Assertions
+				expect(result).toEqual(expect.objectContaining({
+					interactionId: expect.any(String),
+					aiServiceRequest: expect.objectContaining({
+						serviceType: 'generateText',
+						targetModelInfo: expect.objectContaining({ provider: 'google' })
+					}),
+					clientContext: params.clientContext
+				}));
+
+				// Ensure no actual LLM call was attempted (e.g., by checking a mock for GoogleAIProvider if it were more granularly mocked)
+				// For now, success of returning the bundle without error implies no call was made due to missing key in direct path.
+				// The `_unifiedServiceRunner`'s `initiate` path has a specific check for API keys
+				// that logs a warning but continues to find the next provider in sequence for `initiate`.
+				// If all providers in sequence lack a key, it *would* throw.
+				// This test relies on 'google' being the first and only one checked for this role.
+				// If the logic were to throw if the *first chosen* provider has no key, this test would need adjustment.
+				// The current SUT logic tries to find *any* valid configured provider in the sequence.
+				// So, to make this test more robust for "key missing for intended provider", we'd need to ensure
+				// only 'google' is configured for 'main', or that fallback providers also have their keys mocked as false.
+
+				// Let's assume for this test, 'google' is the only one in sequence for 'main' or others would also fail key check.
+				// A more precise test would mock getResearchProvider and getFallbackProvider to null.
+				mockGetResearchProvider.mockReturnValueOnce(null);
+				mockGetFallbackProvider.mockReturnValueOnce(null);
+
+				// Re-run with stricter conditions ensuring 'google' is the only option for the sequence
+				const resultStrict = await ais.generateTextService(params);
+				expect(resultStrict.aiServiceRequest.targetModelInfo.provider).toBe('google');
+
+
+				// We also need to verify that the Google provider's generateText method itself wasn't called
+				// This requires access to the mock for GoogleAIProvider().generateText
+				// The current setup mocks the class constructor.
+				// Let's assume `GoogleAIProvider().generateText` is `mockGoogleProvider.generateText` if we had:
+				// const mockGoogleProvider = { generateText: jest.fn(), ... };
+				// jest.unstable_mockModule('../../src/ai-providers/index.js', () => ({
+				//   GoogleAIProvider: jest.fn(() => mockGoogleProvider), ...
+				// }));
+				// Then: expect(mockGoogleProvider.generateText).not.toHaveBeenCalled();
+				// For now, the fact that it completed without error and returned a bundle is the primary check.
+			});
+
 			test('initiate should throw if no valid provider config found', async () => {
 				mockGetMainProvider.mockReturnValue(null); // No main provider configured
 				mockGetResearchProvider.mockReturnValue(null);
