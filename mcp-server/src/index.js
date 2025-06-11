@@ -130,8 +130,12 @@ class TaskMasterMCPServer {
 					return createErrorResponse("Internal server error: 'agent_llm' tool not found, cannot delegate for " + toolName);
 				}
 
-				log.info(`TaskMasterMCPServer: Detected pendingInteraction for '${toolName}'. Interaction ID: ${interactionId}. Delegating to agent_llm tool.`);
-				const promiseForAgentResponse = new Promise((resolve, reject) => {
+				log.info(`TaskMasterMCPServer: Detected pendingInteraction for '${toolName}'. Interaction ID: ${interactionId}. Storing promise context and dispatching to agent_llm.`);
+
+				// Create a new promise context for when the agent calls back
+				// This promise isn't returned to FastMCP for the original tool call.
+				// FastMCP gets 'toolResult' (the pendingInteraction signal) immediately.
+				new Promise((resolve, reject) => {
 					this.pendingAgentLLMInteractions.set(interactionId, {
 						originalToolName: toolName,
 						originalToolArgs: toolArgs,
@@ -140,22 +144,40 @@ class TaskMasterMCPServer {
 						reject,
 						timestamp: Date.now(),
 					});
-				});
 
-				const projectRoot = toolArgs.projectRoot || session?.roots?.[0]?.uri || '.';
-				agentLLMTool.execute({ interactionId, delegatedCallDetails, projectRoot }, { log, session })
-					.then(agentDirectiveResult => {
-						log.info(`TaskMasterMCPServer: agent_llm directive to agent for ID ${interactionId} sent. Agent response: ${JSON.stringify(agentDirectiveResult)}`);
-					})
-					.catch(error => {
-						log.error(`TaskMasterMCPServer: Error calling agent_llm for initial delegation (ID ${interactionId}): ${error.message}`);
-						const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
-						if (pendingData) {
-							pendingData.reject(new Error(`Failed to delegate to agent_llm: ${error.message}`));
-							this.pendingAgentLLMInteractions.delete(interactionId);
-						}
-					});
-				return promiseForAgentResponse;
+					// Asynchronously dispatch to agent_llm tool.
+					// The outcome of this dispatch (success/failure to send to agent)
+					// will affect the stored promise's state (reject if dispatch fails).
+					const projectRoot = toolArgs.projectRoot || session?.roots?.[0]?.uri || '.';
+					agentLLMTool.execute({ interactionId, delegatedCallDetails, projectRoot }, { log, session })
+						.then(agentDirectiveResult => {
+							// This is the response from agent_llm (Taskmaster-to-Agent call)
+							// It indicates if the directive was successfully formatted for the agent.
+							log.info(`TaskMasterMCPServer: Directive to agent for ID ${interactionId} processed by agent_llm tool. Result: ${JSON.stringify(agentDirectiveResult)}`);
+							// If agentDirectiveResult itself indicates an error (e.g. agent_llm had bad inputs),
+							// we should reject the stored promise.
+							if (agentDirectiveResult && agentDirectiveResult.status && agentDirectiveResult.status !== 'pending_agent_llm_action') { // Or check for an error structure
+								 const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
+								 if (pendingData) {
+									log.error(`TaskMasterMCPServer: agent_llm tool failed to format/dispatch request for agent. Details: ${JSON.stringify(agentDirectiveResult.error || agentDirectiveResult)}`);
+									pendingData.reject(new Error(`agent_llm tool failed during dispatch setup: ${agentDirectiveResult.message || JSON.stringify(agentDirectiveResult.error)}`));
+									this.pendingAgentLLMInteractions.delete(interactionId);
+								 }
+							}
+						})
+						.catch(dispatchError => {
+							log.error(`TaskMasterMCPServer: Error during internal dispatch call to agent_llm for ID ${interactionId}: ${dispatchError.message}`);
+							const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
+							if (pendingData) {
+								pendingData.reject(new Error(`Failed to dispatch to agent_llm: ${dispatchError.message}`));
+								this.pendingAgentLLMInteractions.delete(interactionId);
+							}
+						});
+				}); // End of new Promise for internal tracking
+
+				// Return the original tool's result immediately.
+				// This result contains the pendingInteraction signal for the client.
+				return toolResult;
 
 			} else if (toolName === 'agent_llm' && toolResult && toolResult.interactionId && toolResult.hasOwnProperty('finalLLMOutput')) {
 				const { interactionId, finalLLMOutput, error, status: agentLLMStatus } = toolResult;
