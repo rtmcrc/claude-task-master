@@ -131,6 +131,18 @@ class TaskMasterMCPServer {
 				});
 
 				// Asynchronously call agent_llm tool (Taskmaster to Agent direction)
+				// === Defensive check for this.server.tools ===
+				if (!this.server.tools || typeof this.server.tools.get !== 'function') {
+					log.error("TaskMasterMCPServer: Critical error - this.server.tools is not initialized or not a Map-like object. Cannot delegate to agent_llm.");
+					const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
+					if (pendingData) {
+						pendingData.reject(new Error("Internal server configuration error: Tool collection not available for agent_llm delegation."));
+						this.pendingAgentLLMInteractions.delete(interactionId);
+					}
+					return createErrorResponse("Internal server error: Tool collection not available for agent_llm delegation.");
+				}
+				// === End defensive check ===
+
 				const agentLLMTool = this.server.tools.get('agent_llm'); // FastMCP stores tools on the server instance
 
 				if (agentLLMTool) {
