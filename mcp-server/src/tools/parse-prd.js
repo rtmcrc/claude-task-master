@@ -63,14 +63,22 @@ export function registerParsePRDTool(server) {
 		}),
 		execute: withNormalizedProjectRoot(async (args, { log, session }) => {
 			try {
-				const result = await parsePRDDirect(args, log, { session });
-				return handleApiResult(
-					result,
-					log,
-					'Error parsing PRD',
-					undefined,
-					args.projectRoot
-				);
+				// Call the direct function and store its result
+				const resultFromDirectCall = await parsePRDDirect(args, log, { session });
+
+				// Check if agent delegation is needed
+				if (resultFromDirectCall && resultFromDirectCall.needsAgentDelegation === true) {
+					log.info("parse_prd tool: Agent delegation signaled by parsePRDDirect.");
+					// Return the specific structure for the Taskmaster core wrapper to handle
+					return {
+						status: "pending_agent_llm_delegation", // Informative status for Taskmaster core
+						message: resultFromDirectCall.message, // Message from the direct call
+						pendingInteraction: resultFromDirectCall.pendingInteraction // Key field for Taskmaster core
+					};
+				} else {
+					// If no delegation, process the result as usual
+					return handleApiResult(resultFromDirectCall, log);
+				}
 			} catch (error) {
 				log.error(`Error in parse_prd: ${error.message}`);
 				return createErrorResponse(`Failed to parse PRD: ${error.message}`);
