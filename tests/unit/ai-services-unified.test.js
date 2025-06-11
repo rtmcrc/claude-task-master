@@ -182,9 +182,9 @@ jest.unstable_mockModule('../../src/ai-providers/index.js', () => ({
 		generateObject: jest.fn()
 	})),
 	AgentLLMProvider: jest.fn(() => ({
-    generateText: jest.fn(),
-    streamText: jest.fn(),
-    generateObject: jest.fn()
+		generateText: jest.fn(),
+		streamText: jest.fn(),
+		generateObject: jest.fn()
   }))
 }));
 
