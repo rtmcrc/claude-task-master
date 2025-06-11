@@ -174,7 +174,8 @@ function _resolveApiKey(providerName, session, projectRoot = null) {
 		xai: 'XAI_API_KEY',
 		ollama: 'OLLAMA_API_KEY',
 		bedrock: 'AWS_ACCESS_KEY_ID',
-		vertex: 'GOOGLE_API_KEY'
+		vertex: 'GOOGLE_API_KEY',
+		agentllm: 'AGENTLLM_DUMMY_KEY' // Added line
 	};
 
 	const envVarName = keyMap[providerName];
