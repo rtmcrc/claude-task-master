@@ -441,6 +441,8 @@ async function expandTask(
 			!isSilentMode() && getDebugFlag(session) && log('debug', msg) // Use getDebugFlag
 	};
 
+	let telemetryForFinalReport = null; // --- FIX: Always declare this at the start
+
 	// Determine and normalize projectRoot
 	let determinedProjectRoot = contextProjectRoot;
 	if (!determinedProjectRoot) {
@@ -600,7 +602,6 @@ async function expandTask(
 
 		try {
 			const role = useResearch ? 'research' : 'main';
-			let telemetryForFinalReport = null;
 
 			if (delegationPhase === 'initiate') {
 				logger.info(`Initiating task expansion for task ID: ${taskId}`);
@@ -650,7 +651,7 @@ async function expandTask(
 				// In direct mode, _unifiedServiceRunner returns { mainResult: "text_from_provider", telemetryData: {...} }
 				// and generateTextService returns this directly.
 				responseText = aiServiceResponse.mainResult;
-				telemetryForFinalReport = aiServiceResponse.telemetryData;
+				telemetryForFinalReport = aiServiceResponse ? aiServiceResponse.telemetryData : null; // --- FIX: Always assign, fallback to null if undefined
 
 				// Add/ensure this check:
 				if (typeof responseText !== 'string') {
