@@ -1,6 +1,6 @@
 import { registerAgentLLMTool } from '../../../../../mcp-server/src/tools/agent_llm.js';
 import { createErrorResponse as actualCreateErrorResponse, withNormalizedProjectRoot as actualWithNormalizedProjectRoot } from '../../../../../mcp-server/src/tools/utils.js';
-import { jest } from '@jest/globals';
+
 // Mock uuid to return a fixed value for predictable interactionId testing
 jest.mock('uuid', () => ({
     v4: () => 'fixed-uuid-for-test',

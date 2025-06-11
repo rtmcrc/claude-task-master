@@ -1,4 +1,4 @@
-import { BaseAIProvider } from './base-provider.js';
+import { BaseAIProvider } from './base-ai-provider.js';
 import { v4 as uuidv4 } from 'uuid';
 
 class AgentLLMProvider extends BaseAIProvider {
