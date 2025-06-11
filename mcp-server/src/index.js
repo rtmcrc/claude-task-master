@@ -52,6 +52,12 @@ class TaskMasterMCPServer {
 	async init() {
 		if (this.initialized) return;
 
+		// Ensure this.server.tools is a valid Map before tool registration
+		if (!this.server.tools || typeof this.server.tools.get !== 'function') {
+			this.logger.warn("TaskMasterMCPServer: 'this.server.tools' was not initialized or not a Map. Manually initializing 'this.server.tools = new Map();'. This might indicate an issue with FastMCP's internal initialization.");
+			this.server.tools = new Map();
+		}
+
 		// Create a custom tool registrar that wraps execute methods
 		const customToolRegistrar = {
 			addTool: ({ name, description, parameters, execute }) => {
