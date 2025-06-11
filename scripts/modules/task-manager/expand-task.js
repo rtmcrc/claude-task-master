@@ -441,8 +441,6 @@ async function expandTask(
 			!isSilentMode() && getDebugFlag(session) && log('debug', msg) // Use getDebugFlag
 	};
 
-	let telemetryForFinalReport = null; // --- FIX: Always declare this at the start
-
 	// Determine and normalize projectRoot
 	let determinedProjectRoot = contextProjectRoot;
 	if (!determinedProjectRoot) {
@@ -602,6 +600,7 @@ async function expandTask(
 
 		try {
 			const role = useResearch ? 'research' : 'main';
+			let telemetryForFinalReport = null;
 
 			if (delegationPhase === 'initiate') {
 				logger.info(`Initiating task expansion for task ID: ${taskId}`);
@@ -651,7 +650,7 @@ async function expandTask(
 				// In direct mode, _unifiedServiceRunner returns { mainResult: "text_from_provider", telemetryData: {...} }
 				// and generateTextService returns this directly.
 				responseText = aiServiceResponse.mainResult;
-				telemetryForFinalReport = aiServiceResponse ? aiServiceResponse.telemetryData : null; // --- FIX: Always assign, fallback to null if undefined
+				telemetryForFinalReport = aiServiceResponse.telemetryData;
 
 				// Add/ensure this check:
 				if (typeof responseText !== 'string') {
@@ -716,13 +715,30 @@ async function expandTask(
 			task,
 			telemetryData: telemetryForFinalReport
 		};
-	} catch (error) {
+	} catch (originalError) {
 		// Catches errors from file reading, parsing, AI call etc.
-		logger.error(`Error expanding task ${taskId} (Phase: ${delegationPhase || 'direct'}): ${error.message}`, 'error');
-		if (outputFormat === 'text' && getDebugFlag(session)) {
-			console.error(error); // Log full stack in debug CLI mode
+		let finalError = originalError;
+		if (delegationPhase === 'submit') {
+			finalError = new Error(`Error processing agent's response for task ${taskId} during 'submit' phase: ${originalError.message}`);
+			finalError.stack = originalError.stack; // Attempt to preserve stack
 		}
-		throw error; // Re-throw for the caller
+
+		logger.error(`Error expanding task ${taskId} (Phase: ${delegationPhase || 'direct'}): ${finalError.message}`, 'error');
+
+		// More comprehensive debug logging for responseText
+		// responseText is available in this scope from the try block
+		if (getDebugFlag(session) && typeof responseText === 'string' && responseText.length > 0 && responseText.length < 2000) {
+			if (delegationPhase === 'submit') {
+				logger.error(`Raw Agent Response (from 'submit' phase) that may have caused error processing:\n${responseText}`);
+			} else {
+				logger.error(`Raw AI Response (from direct call) that may have caused error processing:\n${responseText}`);
+			}
+		}
+
+		if (outputFormat === 'text' && getDebugFlag(session)) {
+			console.error(finalError); // Log full stack in debug CLI mode, using finalError
+		}
+		throw finalError; // Re-throw for the caller, using finalError
 	}
 }
 

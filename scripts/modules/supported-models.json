@@ -423,5 +423,6 @@
 			"allowed_roles": ["main", "fallback"],
 			"max_tokens": 32768
 		}
-	]
+	],
+	"agent-llm": []
 }

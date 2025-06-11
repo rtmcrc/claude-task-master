@@ -195,10 +195,10 @@ async function _attemptProviderCallWithRetries(provider, serviceType, callParams
 async function _unifiedServiceRunner(serviceType, params) {
 	const {
 		role: initialRole, session, projectRoot, systemPrompt, prompt, schema, objectName,
-		commandName, outputType, delegationPhase, clientContext, ...restApiParams
+		commandName, outputType, delegationPhase, clientContext, mcpDispatchFunction, ...restApiParams
 	} = params;
 
-	if (getDebugFlag()) log('info', `${serviceType}Service called`, { role: initialRole, commandName, outputType, projectRoot, delegationPhase });
+	if (getDebugFlag()) log('info', `${serviceType}Service called`, { role: initialRole, commandName, outputType, projectRoot, delegationPhase, mcpDispatchFunction: !!mcpDispatchFunction });
 
 	const effectiveProjectRoot = projectRoot || findProjectRoot();
 	const userId = getUserId(effectiveProjectRoot);
@@ -219,11 +219,6 @@ async function _unifiedServiceRunner(serviceType, params) {
 
 			if (intendedProviderName && intendedModelId) {
 				intendedRoleParams = getParametersForRole(role, effectiveProjectRoot);
-				// const providerNeedsApiKey = !['ollama', 'bedrock'].includes(intendedProviderName?.toLowerCase());
-				// if (providerNeedsApiKey && !isApiKeySet(intendedProviderName, session, effectiveProjectRoot)) {
-				// log('warn', `Intended provider ${intendedProviderName} for role ${role} has no API key set. Skipping for 'initiate' phase.`);
-				// continue;
-				// }
 				foundValidConfigForInitiate = true;
 				break;
 			}
@@ -238,6 +233,7 @@ async function _unifiedServiceRunner(serviceType, params) {
 			objectName: serviceType === 'generateObject' ? objectName : undefined,
 			originalRole: currentRoleForInitiate, projectRoot: effectiveProjectRoot, commandName, outputType, userId,
 			timestamp: Date.now(), intendedProviderName, intendedModelId,
+			// No isResolved needed for 'initiate' phase context as it's not a promise awaiting resolution here
 		};
 		pendingInteractions.set(interactionId, interactionContext);
 		log('info', `Delegated interaction ${interactionId} initiated for service ${serviceType}. Context stored.`);
@@ -246,7 +242,6 @@ async function _unifiedServiceRunner(serviceType, params) {
 			interactionId: interactionId,
 			aiServiceRequest: {
 				serviceType: serviceType, systemPrompt: generatedSystemPrompt, userPrompt: prompt,
-				// schemaDefinition has been removed from here
 				objectName: serviceType === 'generateObject' ? objectName : undefined,
 				targetModelInfo: { provider: intendedProviderName, modelId: intendedModelId, maxTokens: intendedRoleParams?.maxTokens, temperature: intendedRoleParams?.temperature }
 			},
@@ -254,92 +249,242 @@ async function _unifiedServiceRunner(serviceType, params) {
 		};
 	}
 
-	let sequence;
-	if (initialRole === 'main') sequence = ['main', 'fallback', 'research'];
-	else if (initialRole === 'research') sequence = ['research', 'fallback', 'main'];
-	else if (initialRole === 'fallback') sequence = ['fallback', 'main', 'research'];
-	else { log('warn', `Unknown initial role: ${initialRole}. Defaulting to main -> fallback -> research sequence.`); sequence = ['main', 'fallback', 'research']; }
+	// --- Agent-LLM Rerouting Logic for Direct Calls ---
+	let initialProviderName, initialModelId, initialRoleParams;
+	if (initialRole === 'main') { initialProviderName = getMainProvider(effectiveProjectRoot); initialModelId = getMainModelId(effectiveProjectRoot); }
+	else if (initialRole === 'research') { initialProviderName = getResearchProvider(effectiveProjectRoot); initialModelId = getResearchModelId(effectiveProjectRoot); }
+	else { initialProviderName = getFallbackProvider(effectiveProjectRoot); initialModelId = getFallbackModelId(effectiveProjectRoot); }
 
-	let lastError = null;
-	let lastCleanErrorMessage = 'AI service call failed for all configured roles.';
+	if (initialProviderName && initialModelId) {
+		initialRoleParams = getParametersForRole(initialRole, effectiveProjectRoot);
+	} else {
+		log('debug', `Initial role '${initialRole}' not fully configured. Skipping agent-llm reroute check.`);
+	}
 
-	for (const currentRole of sequence) {
-		let providerName, modelId, apiKey, roleParams, provider, baseURL, providerResponse, telemetryData = null;
+	if (initialProviderName?.toLowerCase() === 'agent-llm' && delegationPhase !== 'initiate') {
+		log('info', `Rerouting ${serviceType} call for role '${initialRole}' via agent-llm (MCP Dispatch). Model: ${initialModelId}`);
+		const interactionId = crypto.randomUUID();
+		const AGENT_RESPONSE_TIMEOUT_MS = 600000; // 10 minutes
+		let resolvePromiseWithResponse, rejectPromiseWithError;
+
+		const responsePromise = new Promise((resolve, reject) => {
+			resolvePromiseWithResponse = resolve;
+			rejectPromiseWithError = reject;
+		});
+
+		const interactionContext = {
+			serviceType,
+			schemaToValidateWith: serviceType === 'generateObject' ? schema : undefined,
+			objectName: serviceType === 'generateObject' ? objectName : undefined,
+			originalRole: initialRole,
+			projectRoot: effectiveProjectRoot,
+			commandName,
+			outputType,
+			userId,
+			timestamp: Date.now(),
+			intendedProviderName: 'agent-llm',
+			intendedModelId: initialModelId || 'agent-default',
+			isInternalAgentLlmReroute: true,
+			resolvePromiseWithResponse, // Note: key and value are the same
+			rejectPromiseWithError,   // Note: key and value are the same
+			isResolved: false, // Initialize new flag
+		};
+		pendingInteractions.set(interactionId, interactionContext);
+		log('info', `Internal agent-llm interaction ${interactionId} stored for service ${serviceType}. Waiting for agent response.`);
+
+		const aiServiceRequestToAgent = {
+			serviceType: serviceType,
+			systemPrompt: systemPrompt || `Agent, please process this ${serviceType} request.`,
+			userPrompt: prompt,
+			objectName: serviceType === 'generateObject' ? objectName : undefined,
+			targetModelInfo: {
+				provider: initialProviderName,
+				modelId: initialModelId,
+				maxTokens: initialRoleParams?.maxTokens,
+				temperature: initialRoleParams?.temperature,
+			}
+		};
+
+		let dispatchErrorOccurred = false;
 		try {
-			log('info', `New AI service call with role: ${currentRole}`);
-			if (currentRole === 'main') { providerName = getMainProvider(effectiveProjectRoot); modelId = getMainModelId(effectiveProjectRoot); }
-			else if (currentRole === 'research') { providerName = getResearchProvider(effectiveProjectRoot); modelId = getResearchModelId(effectiveProjectRoot); }
-			else if (currentRole === 'fallback') { providerName = getFallbackProvider(effectiveProjectRoot); modelId = getFallbackModelId(effectiveProjectRoot); }
-			else { log('error', `Unknown role encountered: ${currentRole}`); lastError = lastError || new Error(`Unknown AI role: ${currentRole}`); continue; }
-
-			if (!providerName || !modelId) { log('warn', `Skipping role '${currentRole}': Config missing.`); lastError = lastError || new Error(`Config missing for role '${currentRole}'.`); continue; }
-			provider = PROVIDERS[providerName?.toLowerCase()];
-			if (!provider) { log('warn', `Skipping role '${currentRole}': Provider '${providerName}' not supported.`); lastError = lastError || new Error(`Unsupported provider: ${providerName}`); continue; }
-
-			if (providerName?.toLowerCase() !== 'ollama' && !isApiKeySet(providerName, session, effectiveProjectRoot)) {
-				log('warn', `Skipping role '${currentRole}' (Provider: ${providerName}): API key not set.`);
-				lastError = lastError || new Error(`API key for ${providerName} (role: ${currentRole}) not set.`);
-				continue;
+			if (typeof mcpDispatchFunction !== 'function') {
+				const errMsg = "mcpDispatchFunction is required for 'agent-llm' provider type but was not provided.";
+				// No need to get context from pendingInteractions here, we have it directly
+				if (interactionContext.rejectPromiseWithError && !interactionContext.isResolved) {
+					try { interactionContext.rejectPromiseWithError(new Error(errMsg)); } catch(e){ log('error', `Failed to call rejectPromiseWithError for ${interactionId}: ${e.message}`); }
+					interactionContext.isResolved = true;
+				}
+				if (pendingInteractions.has(interactionId)) pendingInteractions.delete(interactionId);
+				throw new Error(errMsg);
 			}
 
-			baseURL = getBaseUrlForRole(currentRole, effectiveProjectRoot);
-			if (providerName?.toLowerCase() === 'azure' && !baseURL) baseURL = getAzureBaseURL(effectiveProjectRoot);
-			else if (providerName?.toLowerCase() === 'ollama' && !baseURL) baseURL = getOllamaBaseURL(effectiveProjectRoot);
-			else if (providerName?.toLowerCase() === 'bedrock' && !baseURL) baseURL = getBedrockBaseURL(effectiveProjectRoot);
+			log('info', `Dispatching internal agent-llm request ${interactionId} via mcpDispatchFunction.`);
+			mcpDispatchFunction({ interactionId, requestBundle: aiServiceRequestToAgent });
 
-			roleParams = getParametersForRole(currentRole, effectiveProjectRoot);
-			apiKey = _resolveApiKey(providerName?.toLowerCase(), session, effectiveProjectRoot);
-			let providerSpecificParams = {};
-			if (providerName?.toLowerCase() === 'vertex') {
-				const projectId = getVertexProjectId(effectiveProjectRoot) || resolveEnvVariable('VERTEX_PROJECT_ID', session, effectiveProjectRoot);
-				const location = getVertexLocation(effectiveProjectRoot) || resolveEnvVariable('VERTEX_LOCATION', session, effectiveProjectRoot) || 'us-central1';
-				const credentialsPath = resolveEnvVariable('GOOGLE_APPLICATION_CREDENTIALS', session, effectiveProjectRoot);
-				providerSpecificParams = { projectId, location, ...(credentialsPath && { credentials: { credentialsFromEnv: true } }) };
-				log('debug', `Vertex AI config: Project ID=${projectId}, Location=${location}`);
+		} catch (dispatchError) {
+			dispatchErrorOccurred = true; // Mark that dispatch itself failed
+			log('error', `Error directly from mcpDispatchFunction for interaction ${interactionId}: ${dispatchError.message}`);
+			// Similar handling as other errors for this path
+			if (!interactionContext.isResolved) { // Check isResolved before rejecting
+				if (interactionContext.rejectPromiseWithError) {
+					try { interactionContext.rejectPromiseWithError(dispatchError); } catch(e){ log('error', `Failed to call rejectPromiseWithError after dispatch error for ${interactionId}: ${e.message}`); }
+				}
+				interactionContext.isResolved = true;
 			}
+			if (pendingInteractions.has(interactionId)) pendingInteractions.delete(interactionId);
+			throw dispatchError; // Re-throw the dispatch error
+		}
 
-			const messages = [];
-			if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-			if (prompt) messages.push({ role: 'user', content: prompt });
-			else throw new Error('User prompt content is missing.');
+		// Only proceed to Promise.race if dispatch did not throw immediately
+		if (!dispatchErrorOccurred) {
+			try {
+				const timeoutPromise = new Promise((_, reject) =>
+					setTimeout(() => reject(new Error(`Agent response timeout after ${AGENT_RESPONSE_TIMEOUT_MS / 1000}s for interaction ${interactionId}`)), AGENT_RESPONSE_TIMEOUT_MS)
+				);
 
-			const callParams = {
-				apiKey, modelId, maxTokens: roleParams.maxTokens, temperature: roleParams.temperature, messages,
-				...(baseURL && { baseURL }), ...(serviceType === 'generateObject' && { schema, objectName }),
-				...providerSpecificParams, ...restApiParams
-			};
-			providerResponse = await _attemptProviderCallWithRetries(provider, serviceType, callParams, providerName, modelId, currentRole);
+				const agentResponsePayload = await Promise.race([responsePromise, timeoutPromise]);
 
-			if (userId && providerResponse && providerResponse.usage) {
-				try {
-					telemetryData = await logAiUsage({
-						userId, commandName, providerName, modelId,
-						inputTokens: providerResponse.usage.inputTokens, outputTokens: providerResponse.usage.outputTokens, outputType
-					});
-				} catch (telemetryError) { /* Already logged by logAiUsage */ }
-			} else if (userId && providerResponse && !providerResponse.usage) {
-				log('warn', `Cannot log telemetry for ${commandName} (${providerName}/${modelId}): AI result missing 'usage' data.`);
-			}
+				let mainResult;
+				const telemetryData = agentResponsePayload.telemetryData;
 
-			let finalMainResult;
-			if (serviceType === 'generateText') finalMainResult = providerResponse.text;
-			else if (serviceType === 'generateObject') finalMainResult = providerResponse.object;
-			else if (serviceType === 'streamText') finalMainResult = providerResponse;
-			else { log('error', `Unknown serviceType: ${serviceType}`); finalMainResult = providerResponse; }
+				if (serviceType === 'generateText') mainResult = agentResponsePayload.text;
+				else if (serviceType === 'generateObject') mainResult = agentResponsePayload.object;
+				else if (serviceType === 'streamText') {
+					async function* singleYieldStream() {
+						if (typeof agentResponsePayload.text === 'string') {
+							yield agentResponsePayload.text;
+						} else {
+							log('warn', `agent-llm streamText response was not a string for ${interactionId}. Yielding empty.`);
+						}
+					}
+					mainResult = singleYieldStream();
+				} else {
+					const errMsg = `Unhandled serviceType '${serviceType}' in agent-llm response processing for interaction ${interactionId}.`;
+					log('error', errMsg);
+					// Attempt to use 'text' or 'object' if present, otherwise error
+					mainResult = agentResponsePayload.text || agentResponsePayload.object;
+					if (mainResult === undefined) {
+						// No specific promise to reject here as we are past Promise.race, but we should throw
+						throw new Error(`Agent response for ${interactionId} did not contain expected 'text' or 'object' for service type ${serviceType}.`);
+					}
+				}
+				log('info', `Successfully received and processed response from agent for interaction ${interactionId}.`);
+				return { mainResult, telemetryData };
 
-			return { mainResult: finalMainResult, telemetryData: telemetryData };
-		} catch (error) {
-			const cleanMessage = _extractErrorMessage(error);
-			log('error', `Service call failed for role ${currentRole} (Provider: ${providerName || 'unknown'}, Model: ${modelId || 'unknown'}): ${cleanMessage}`);
-			lastError = error; lastCleanErrorMessage = cleanMessage;
-			if (serviceType === 'generateObject' && (cleanMessage.toLowerCase().includes('tool use') || cleanMessage.toLowerCase().includes('function calling'))) {
-				const specificErrorMsg = `Model '${modelId || 'unknown'}' via provider '${providerName || 'unknown'}' does not support 'tool use' for generateObjectService.`;
-				log('error', `[Tool Support Error] ${specificErrorMsg}`); throw new Error(specificErrorMsg);
+			} catch (error) {
+				log('error', `Error during agent-llm rerouting (Promise.race or processing) for interaction ${interactionId}: ${error.message}`);
+				const context = pendingInteractions.get(interactionId);
+				if (context && !context.isResolved) {
+					if(context.rejectPromiseWithError) {
+						try { context.rejectPromiseWithError(error); } catch(e){ log('error', `Failed to call rejectPromiseWithError for ${interactionId}: ${e.message}`); }
+					}
+					context.isResolved = true;
+					pendingInteractions.delete(interactionId);
+					log('info', `Cleaned up pending interaction ${interactionId} due to error or timeout in Promise.race.`);
+				} else if (context && context.isResolved) {
+					log('info', `Interaction ${interactionId} already resolved when error occurred in Promise.race (race condition).`);
+					if(pendingInteractions.has(interactionId)) pendingInteractions.delete(interactionId);
+				} else if (!context) {
+					log('info', `Interaction ${interactionId} not found in pendingInteractions during Promise.race error handling.`);
+				}
+				throw error;
 			}
 		}
+	} else {
+		// --- Standard Direct Call Logic (if not agent-llm or if it's 'initiate' phase) ---
+		let sequence;
+		if (initialRole === 'main') sequence = ['main', 'fallback', 'research'];
+		else if (initialRole === 'research') sequence = ['research', 'fallback', 'main'];
+		else if (initialRole === 'fallback') sequence = ['fallback', 'main', 'research'];
+		else { log('warn', `Unknown initial role: ${initialRole}. Defaulting to main -> fallback -> research sequence.`); sequence = ['main', 'fallback', 'research']; }
+
+		let lastError = null;
+		let lastCleanErrorMessage = 'AI service call failed for all configured roles.';
+
+		for (const currentRole of sequence) {
+			let providerName, modelId, apiKey, roleParams, provider, baseURL, providerResponse, telemetryData = null;
+			try {
+				log('info', `New AI service call with role: ${currentRole}`);
+				if (currentRole === 'main') { providerName = getMainProvider(effectiveProjectRoot); modelId = getMainModelId(effectiveProjectRoot); }
+				else if (currentRole === 'research') { providerName = getResearchProvider(effectiveProjectRoot); modelId = getResearchModelId(effectiveProjectRoot); }
+				else if (currentRole === 'fallback') { providerName = getFallbackProvider(effectiveProjectRoot); modelId = getFallbackModelId(effectiveProjectRoot); }
+				else { log('error', `Unknown role encountered: ${currentRole}`); lastError = lastError || new Error(`Unknown AI role: ${currentRole}`); continue; }
+
+				if (!providerName || !modelId) { log('warn', `Skipping role '${currentRole}': Config missing.`); lastError = lastError || new Error(`Config missing for role '${currentRole}'.`); continue; }
+
+				if (providerName.toLowerCase() === 'agent-llm') {
+					log('debug', `Skipping 'agent-llm' provider encountered in standard sequence for role ${currentRole}. It should be handled by specific rerouting logic.`);
+					continue;
+				}
+
+				provider = PROVIDERS[providerName?.toLowerCase()];
+				if (!provider) { log('warn', `Skipping role '${currentRole}': Provider '${providerName}' not supported.`); lastError = lastError || new Error(`Unsupported provider: ${providerName}`); continue; }
+
+				if (providerName?.toLowerCase() !== 'ollama' && providerName?.toLowerCase() !== 'bedrock' && !isApiKeySet(providerName, session, effectiveProjectRoot)) {
+					log('warn', `Skipping role '${currentRole}' (Provider: ${providerName}): API key not set.`);
+					lastError = lastError || new Error(`API key for ${providerName} (role: ${currentRole}) not set.`);
+					continue;
+				}
+
+				baseURL = getBaseUrlForRole(currentRole, effectiveProjectRoot);
+				if (providerName?.toLowerCase() === 'azure' && !baseURL) baseURL = getAzureBaseURL(effectiveProjectRoot);
+				else if (providerName?.toLowerCase() === 'ollama' && !baseURL) baseURL = getOllamaBaseURL(effectiveProjectRoot);
+				else if (providerName?.toLowerCase() === 'bedrock' && !baseURL) baseURL = getBedrockBaseURL(effectiveProjectRoot);
+
+				roleParams = getParametersForRole(currentRole, effectiveProjectRoot);
+				apiKey = _resolveApiKey(providerName?.toLowerCase(), session, effectiveProjectRoot);
+				let providerSpecificParams = {};
+				if (providerName?.toLowerCase() === 'vertex') {
+					const projectId = getVertexProjectId(effectiveProjectRoot) || resolveEnvVariable('VERTEX_PROJECT_ID', session, effectiveProjectRoot);
+					const location = getVertexLocation(effectiveProjectRoot) || resolveEnvVariable('VERTEX_LOCATION', session, effectiveProjectRoot) || 'us-central1';
+					const credentialsPath = resolveEnvVariable('GOOGLE_APPLICATION_CREDENTIALS', session, effectiveProjectRoot);
+					providerSpecificParams = { projectId, location, ...(credentialsPath && { credentials: { credentialsFromEnv: true } }) };
+					log('debug', `Vertex AI config: Project ID=${projectId}, Location=${location}`);
+				}
+
+				const messages = [];
+				if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+				if (prompt) messages.push({ role: 'user', content: prompt });
+				else throw new Error('User prompt content is missing.');
+
+				const callParams = {
+					apiKey, modelId, maxTokens: roleParams.maxTokens, temperature: roleParams.temperature, messages,
+					...(baseURL && { baseURL }), ...(serviceType === 'generateObject' && { schema, objectName }),
+					...providerSpecificParams, ...restApiParams
+				};
+				providerResponse = await _attemptProviderCallWithRetries(provider, serviceType, callParams, providerName, modelId, currentRole);
+
+				if (userId && providerResponse && providerResponse.usage) {
+					try {
+						telemetryData = await logAiUsage({
+							userId, commandName, providerName, modelId,
+							inputTokens: providerResponse.usage.inputTokens, outputTokens: providerResponse.usage.outputTokens, outputType
+						});
+					} catch (telemetryError) { /* Already logged by logAiUsage */ }
+				} else if (userId && providerResponse && !providerResponse.usage) {
+					log('warn', `Cannot log telemetry for ${commandName} (${providerName}/${modelId}): AI result missing 'usage' data.`);
+				}
+
+				let finalMainResult;
+				if (serviceType === 'generateText') finalMainResult = providerResponse.text;
+				else if (serviceType === 'generateObject') finalMainResult = providerResponse.object;
+				else if (serviceType === 'streamText') finalMainResult = providerResponse;
+				else { log('error', `Unknown serviceType: ${serviceType}`); finalMainResult = providerResponse; }
+
+				return { mainResult: finalMainResult, telemetryData: telemetryData };
+			} catch (error) {
+				const cleanMessage = _extractErrorMessage(error);
+				log('error', `Service call failed for role ${currentRole} (Provider: ${providerName || 'unknown'}, Model: ${modelId || 'unknown'}): ${cleanMessage}`);
+				lastError = error; lastCleanErrorMessage = cleanMessage;
+				if (serviceType === 'generateObject' && (cleanMessage.toLowerCase().includes('tool use') || cleanMessage.toLowerCase().includes('function calling'))) {
+					const specificErrorMsg = `Model '${modelId || 'unknown'}' via provider '${providerName || 'unknown'}' does not support 'tool use' for generateObjectService.`;
+					log('error', `[Tool Support Error] ${specificErrorMsg}`); throw new Error(specificErrorMsg);
+				}
+			}
+		}
+		log('error', `All roles in sequence [${sequence.join(', ')}] failed.`);
+		throw new Error(lastCleanErrorMessage);
 	}
-	log('error', `All roles in sequence [${sequence.join(', ')}] failed.`);
-	throw new Error(lastCleanErrorMessage);
 }
 
 function _processDelegatedTextInternal(interactionId, rawLLMResponse, llmUsageData, interactionContext) {
@@ -410,8 +555,50 @@ async function submitDelegatedTextResponseService(params) {
   if (!interactionContext) {
     throw new Error(`Invalid or expired interactionId: ${interactionId}`);
   }
+  // If this submit is for an internal agent-llm reroute, call its specific resolver
+  if (interactionContext.isInternalAgentLlmReroute && interactionContext.resolvePromiseWithResponse) {
+    if (interactionContext.serviceType !== 'generateText') { // Should match the service type
+      const errMsg = `Interaction ID ${interactionId} (internal reroute) is for '${interactionContext.serviceType}', not 'generateText' as expected by submitDelegatedTextResponseService.`;
+      log('error', errMsg);
+      if (interactionContext.rejectPromiseWithError && !interactionContext.isResolved) {
+        try { interactionContext.rejectPromiseWithError(new Error(errMsg)); } catch (e) { log('error', `Failed to call rejectPromiseWithError for ${interactionId}: ${e.message}`); }
+        interactionContext.isResolved = true;
+      }
+      pendingInteractions.delete(interactionId); // Clean up context
+      throw new Error(errMsg);
+    }
+    log('info', `Resolving internal agent-llm text interaction ${interactionId} via submitDelegatedTextResponseService.`);
+    const result = _processDelegatedTextInternal(interactionId, rawLLMResponse, llmUsageData, interactionContext);
+    const telemetry = await logAiUsage({
+      userId: interactionContext.userId,
+      commandName: interactionContext.commandName,
+      providerName: interactionContext.intendedProviderName, // Should be 'agent-llm'
+      modelId: interactionContext.intendedModelId,      // Original model targeted by agent
+      inputTokens: llmUsageData?.inputTokens,
+      outputTokens: llmUsageData?.outputTokens,
+      outputType: interactionContext.outputType
+    });
+
+    if (!interactionContext.isResolved) {
+      try {
+        interactionContext.resolvePromiseWithResponse({ text: result.text, usage: llmUsageData, telemetryData: telemetry });
+      } catch (e) {
+        log('error', `Failed to call resolvePromiseWithResponse for ${interactionId}: ${e.message}`);
+        if (interactionContext.rejectPromiseWithError && !interactionContext.isResolved) { // Check again, in case resolve failed
+           try { interactionContext.rejectPromiseWithError(e); } catch (e2) { log('error', `Failed to call rejectPromiseWithError after resolve failed for ${interactionId}: ${e2.message}`); }
+        }
+      }
+      interactionContext.isResolved = true;
+    } else {
+      log('warn', `Interaction ${interactionId} already resolved. submitDelegatedTextResponseService called again for internal reroute.`);
+    }
+    pendingInteractions.delete(interactionId); // Clean up context
+    return { text: result.text, usage: llmUsageData, telemetryData: telemetry }; // Return for external callers too
+  }
+
+  // Standard handling for external agents
   if (interactionContext.serviceType !== 'generateText') {
-    pendingInteractions.delete(interactionId);
+    pendingInteractions.delete(interactionId); // Defensive delete
     throw new Error(`Interaction ID ${interactionId} is for a '${interactionContext.serviceType}' service, not 'generateText'.`);
   }
 
@@ -420,8 +607,8 @@ async function submitDelegatedTextResponseService(params) {
     const telemetry = await logAiUsage({
       userId: interactionContext.userId,
       commandName: interactionContext.commandName,
-      providerName: 'delegated_agent',
-      modelId: 'agent_provided',
+      providerName: 'delegated_agent', // For external agents
+      modelId: 'agent_provided',      // For external agents
       inputTokens: llmUsageData?.inputTokens,
       outputTokens: llmUsageData?.outputTokens,
       outputType: interactionContext.outputType
@@ -430,6 +617,9 @@ async function submitDelegatedTextResponseService(params) {
     return { text: result.text, usage: llmUsageData, telemetryData: telemetry };
   } catch (error) {
     log('error', `Error processing delegated text response for ${interactionId}: ${error.message}`);
+    // For external calls, there's no specific promise to reject here related to internal rerouting.
+    // If an error occurs, it's thrown back to the external agent caller.
+    if (pendingInteractions.has(interactionId)) pendingInteractions.delete(interactionId);
     throw error;
   }
 }
@@ -441,6 +631,48 @@ async function submitDelegatedObjectResponseService(params) {
   if (!interactionContext) {
     throw new Error(`Invalid or expired interactionId: ${interactionId}`);
   }
+
+  // If this submit is for an internal agent-llm reroute, call its specific resolver
+  if (interactionContext.isInternalAgentLlmReroute && interactionContext.resolvePromiseWithResponse) {
+    if (interactionContext.serviceType !== 'generateObject') { // Should match the service type
+      const errMsg = `Interaction ID ${interactionId} (internal reroute) is for '${interactionContext.serviceType}', not 'generateObject' as expected by submitDelegatedObjectResponseService.`;
+      log('error', errMsg);
+      if (interactionContext.rejectPromiseWithError && !interactionContext.isResolved) {
+        try { interactionContext.rejectPromiseWithError(new Error(errMsg)); } catch (e) { log('error', `Failed to call rejectPromiseWithError for ${interactionId}: ${e.message}`); }
+        interactionContext.isResolved = true;
+      }
+      pendingInteractions.delete(interactionId);
+      throw new Error(errMsg);
+    }
+    log('info', `Resolving internal agent-llm object interaction ${interactionId} via submitDelegatedObjectResponseService.`);
+    const result = _processDelegatedObjectInternal(interactionId, rawLLMResponse, llmUsageData, interactionContext);
+    const telemetry = await logAiUsage({
+      userId: interactionContext.userId,
+      commandName: interactionContext.commandName,
+      providerName: interactionContext.intendedProviderName, // 'agent-llm'
+      modelId: interactionContext.intendedModelId,
+      inputTokens: llmUsageData?.inputTokens,
+      outputTokens: llmUsageData?.outputTokens,
+      outputType: interactionContext.outputType
+    });
+    if (!interactionContext.isResolved) {
+      try {
+        interactionContext.resolvePromiseWithResponse({ object: result.object, usage: llmUsageData, telemetryData: telemetry });
+      } catch (e) {
+        log('error', `Failed to call resolvePromiseWithResponse for ${interactionId}: ${e.message}`);
+        if (interactionContext.rejectPromiseWithError && !interactionContext.isResolved) { // Check again, in case resolve failed
+           try { interactionContext.rejectPromiseWithError(e); } catch (e2) { log('error', `Failed to call rejectPromiseWithError after resolve failed for ${interactionId}: ${e2.message}`); }
+        }
+      }
+      interactionContext.isResolved = true;
+    } else {
+      log('warn', `Interaction ${interactionId} already resolved. submitDelegatedObjectResponseService called again for internal reroute.`);
+    }
+    pendingInteractions.delete(interactionId);
+    return { object: result.object, usage: llmUsageData, telemetryData: telemetry };
+  }
+
+  // Standard handling for external agents
   if (interactionContext.serviceType !== 'generateObject') {
     pendingInteractions.delete(interactionId);
     throw new Error(`Interaction ID ${interactionId} is for a '${interactionContext.serviceType}' service, not 'generateObject'.`);
@@ -461,6 +693,8 @@ async function submitDelegatedObjectResponseService(params) {
     return { object: result.object, usage: llmUsageData, telemetryData: telemetry };
   } catch (error) {
     log('error', `Error processing delegated object response for ${interactionId}: ${error.message}`);
+    // For external calls, there's no specific promise to reject here.
+    if (pendingInteractions.has(interactionId)) pendingInteractions.delete(interactionId);
     throw error;
   }
 }
@@ -472,6 +706,65 @@ async function submitDelegatedStreamResponseService(params) {
   if (!interactionContext) {
     throw new Error(`Invalid or expired interactionId: ${interactionId}`);
   }
+
+  if (interactionContext.isInternalAgentLlmReroute && interactionContext.resolvePromiseWithResponse) {
+    if (interactionContext.serviceType !== 'streamText') {
+        const errMsg = `Interaction ID ${interactionId} (internal reroute) is for '${interactionContext.serviceType}', not 'streamText'.`;
+        log('error', errMsg);
+        if (interactionContext.rejectPromiseWithError && !interactionContext.isResolved) {
+            try { interactionContext.rejectPromiseWithError(new Error(errMsg)); } catch(e) { log('error', 'Failed to call rejectPromiseWithError'); }
+            interactionContext.isResolved = true;
+        }
+        pendingInteractions.delete(interactionId);
+        throw new Error(errMsg);
+    }
+    log('info', `Resolving internal agent-llm stream interaction ${interactionId} via submitDelegatedStreamResponseService.`);
+
+    if (typeof rawLLMResponse !== 'string') {
+        const errMsg = `For internal agent-llm stream reroute ${interactionId}, rawLLMResponse must be the complete string. Received type: ${typeof rawLLMResponse}`;
+        log('error', errMsg);
+        if (interactionContext.rejectPromiseWithError && !interactionContext.isResolved) {
+            try { interactionContext.rejectPromiseWithError(new Error(errMsg)); } catch(e) { log('error', 'Failed to call rejectPromiseWithError'); }
+            interactionContext.isResolved = true;
+        }
+        pendingInteractions.delete(interactionId);
+        throw new Error(errMsg);
+    }
+
+    const telemetry = await logAiUsage({
+        userId: interactionContext.userId,
+        commandName: interactionContext.commandName,
+        providerName: interactionContext.intendedProviderName, // Should be 'agent-llm'
+        modelId: interactionContext.intendedModelId,
+        inputTokens: llmUsageData?.inputTokens,
+        outputTokens: llmUsageData?.outputTokens, // This might be 0 if agent provides full text as one chunk
+        outputType: interactionContext.outputType
+    });
+
+    if (!interactionContext.isResolved) {
+      try {
+        // Resolve _unifiedServiceRunner's promise with the *collected text*.
+        // _unifiedServiceRunner will then re-wrap this into a stream.
+        interactionContext.resolvePromiseWithResponse({ text: rawLLMResponse, usage: llmUsageData, telemetryData: telemetry });
+      } catch (e) {
+        log('error', `Failed to call resolvePromiseWithResponse for ${interactionId}: ${e.message}`);
+        if (interactionContext.rejectPromiseWithError && !interactionContext.isResolved) { // Check again, in case resolve failed
+           try { interactionContext.rejectPromiseWithError(e); } catch (e2) { log('error', `Failed to call rejectPromiseWithError after resolve failed for ${interactionId}: ${e2.message}`); }
+        }
+      }
+      interactionContext.isResolved = true; // Mark as resolved
+    } else {
+      log('warn', `Interaction ${interactionId} already resolved. submitDelegatedStreamResponseService called again for internal reroute.`);
+    }
+    pendingInteractions.delete(interactionId);
+
+    // For consistency, the return value of submitDelegatedStreamResponseService itself
+    // for an internal reroute can still be its original stream format.
+    const resultForExternal = _processDelegatedStreamInternal(interactionId, rawLLMResponse, llmUsageData, interactionContext);
+    return { textStream: resultForExternal.textStream, usagePromise: Promise.resolve(llmUsageData), telemetryData: telemetry };
+  }
+
+  // Standard handling for external agents
   if (interactionContext.serviceType !== 'streamText') {
     pendingInteractions.delete(interactionId);
     throw new Error(`Interaction ID ${interactionId} is for a '${interactionContext.serviceType}' service, not 'streamText'.`);
