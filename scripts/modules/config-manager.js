@@ -480,8 +480,9 @@ function getParametersForRole(role, explicitRoot = null) {
  */
 function isApiKeySet(providerName, session = null, projectRoot = null) {
 	// Define the expected environment variable name for each provider
-	if (providerName?.toLowerCase() === 'ollama') {
-		return true; // Indicate key status is effectively "OK"
+	const providerNameLower = providerName?.toLowerCase();
+	if (providerNameLower === 'ollama' || providerNameLower === 'bedrock' || providerNameLower === 'agentllm') {
+		return true; // These providers might not require a key or use other auth.
 	}
 
 	const keyMap = {

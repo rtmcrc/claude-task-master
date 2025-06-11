@@ -39,7 +39,8 @@ import {
 	OllamaAIProvider,
 	BedrockAIProvider,
 	AzureProvider,
-	VertexAIProvider
+	VertexAIProvider,
+	AgentLLMProvider
 } from '../../src/ai-providers/index.js';
 
 // Create provider instances
@@ -53,7 +54,8 @@ const PROVIDERS = {
 	ollama: new OllamaAIProvider(),
 	bedrock: new BedrockAIProvider(),
 	azure: new AzureProvider(),
-	vertex: new VertexAIProvider()
+	vertex: new VertexAIProvider(),
+	agentllm: new AgentLLMProvider()
 };
 
 // Helper function to get cost for a specific model
@@ -185,7 +187,7 @@ function _resolveApiKey(providerName, session, projectRoot = null) {
 	const apiKey = resolveEnvVariable(envVarName, session, projectRoot);
 
 	// Special handling for providers that can use alternative auth
-	if (providerName === 'ollama' || providerName === 'bedrock') {
+	if (providerName === 'ollama' || providerName === 'bedrock' || providerName === 'agentllm') {
 		return apiKey || null;
 	}
 
@@ -385,7 +387,7 @@ async function _unifiedServiceRunner(serviceType, params) {
 			}
 
 			// Check API key if needed
-			if (providerName?.toLowerCase() !== 'ollama') {
+			if (providerName?.toLowerCase() !== 'ollama' && providerName?.toLowerCase() !== 'agentllm') {
 				if (!isApiKeySet(providerName, session, effectiveProjectRoot)) {
 					log(
 						'warn',
@@ -517,6 +519,20 @@ async function _unifiedServiceRunner(serviceType, params) {
 				modelId,
 				currentRole
 			);
+
+			// === BEGIN MODIFICATION for AgentLLM Delegation ===
+			if (providerResponse && providerResponse.type === 'agent_llm_delegation') {
+				if (getDebugFlag()) {
+					log('info', `Role ${currentRole} (Provider: ${providerName}) signaled agent_llm_delegation for command ${commandName}. Details: ${JSON.stringify(providerResponse.details)}`);
+				}
+				// Propagate the delegation signal object upwards.
+				// The calling function (e.g., an MCP tool) will use this to build the pendingInteraction field.
+				return {
+					mainResult: providerResponse, // This is the { type: 'agent_llm_delegation', details: ... } object
+					telemetryData: null // No direct LLM call was made by this provider here.
+				};
+			}
+			// === END MODIFICATION ===
 
 			if (userId && providerResponse && providerResponse.usage) {
 				try {
