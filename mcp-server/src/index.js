@@ -32,6 +32,7 @@ class TaskMasterMCPServer {
 		this.server = new FastMCP(this.options);
 		this.initialized = false;
 		this.pendingAgentLLMInteractions = new Map(); // For managing paused states
+		this.registeredTools = new Map(); // Internal tool registry
 
 		this.server.addResource({});
 
@@ -52,25 +53,24 @@ class TaskMasterMCPServer {
 	async init() {
 		if (this.initialized) return;
 
-		// Ensure this.server.tools is a valid Map before tool registration
-		if (!this.server.tools || typeof this.server.tools.get !== 'function') {
-			this.logger.warn("TaskMasterMCPServer: 'this.server.tools' was not initialized or not a Map. Manually initializing 'this.server.tools = new Map();'. This might indicate an issue with FastMCP's internal initialization.");
-			this.server.tools = new Map();
-		}
-
 		// Create a custom tool registrar that wraps execute methods
+		// AND populates our internal registry
 		const customToolRegistrar = {
 			addTool: ({ name, description, parameters, execute }) => {
 				const wrappedExecute = this._getWrappedToolExecutor(name, execute);
+
+				// Add to FastMCP's registry (as before)
 				this.server.addTool({
 					name,
 					description,
 					parameters,
 					execute: wrappedExecute,
 				});
+
+				// Add to our internal registry
+				this.registeredTools.set(name, { name, description, parameters, execute: wrappedExecute });
+				this.logger.info(`TaskMasterMCPServer: Tool '${name}' registered internally and with FastMCP.`);
 			},
-			// Add other methods if FastMCP expects them on the server object during registration
-			// For now, only addTool is known to be used by registerTaskMasterTools
 		};
 
 		// Pass the custom registrar to the tool registration function
@@ -137,23 +137,22 @@ class TaskMasterMCPServer {
 				});
 
 				// Asynchronously call agent_llm tool (Taskmaster to Agent direction)
-				// === Defensive check for this.server.tools ===
-				if (!this.server.tools || typeof this.server.tools.get !== 'function') {
-					log.error("TaskMasterMCPServer: Critical error - this.server.tools is not initialized or not a Map-like object. Cannot delegate to agent_llm.");
+				const agentLLMTool = this.registeredTools.get('agent_llm');
+
+				if (!agentLLMTool) {
+					log.error("TaskMasterMCPServer: Critical error - 'agent_llm' tool not found in internal registry. Cannot delegate to agent_llm.");
 					const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
 					if (pendingData) {
-						pendingData.reject(new Error("Internal server configuration error: Tool collection not available for agent_llm delegation."));
+						pendingData.reject(new Error("Internal server configuration error: 'agent_llm' tool not found in internal registry."));
 						this.pendingAgentLLMInteractions.delete(interactionId);
 					}
-					return createErrorResponse("Internal server error: Tool collection not available for agent_llm delegation.");
+					return createErrorResponse("Internal server error: 'agent_llm' tool not found, cannot delegate.");
 				}
-				// === End defensive check ===
+				// No 'else' needed here for agentLLMTool, as the if block above returns.
+				// This means agentLLMTool is guaranteed to be found if we reach here.
 
-				const agentLLMTool = this.server.tools.get('agent_llm'); // FastMCP stores tools on the server instance
-
-				if (agentLLMTool) {
-					// Determine projectRoot: from toolArgs, then session, then fallback.
-					// agent_llm.js's withNormalizedProjectRoot will handle final normalization.
+				// Determine projectRoot: from toolArgs, then session, then fallback.
+				// agent_llm.js's withNormalizedProjectRoot will handle final normalization.
 					const projectRoot = toolArgs.projectRoot || session?.roots?.[0]?.uri || '.';
 
 					agentLLMTool.execute({ interactionId, delegatedCallDetails, projectRoot }, { log, session })
@@ -170,13 +169,10 @@ class TaskMasterMCPServer {
 							}
 						});
 				} else {
-					log.error("TaskMasterMCPServer: agent_llm tool not found for delegation.");
-					const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
-					if (pendingData) {
-						pendingData.reject(new Error("agent_llm tool not found for delegation."));
-						this.pendingAgentLLMInteractions.delete(interactionId);
-					}
+					// This 'else' block is now part of the 'if (!agentLLMTool)' check above,
+					// so it's effectively handled. The logic for when agentLLMTool *is* found continues directly.
 				}
+				// Removed the original 'else' for agentLLMTool not found, as it's covered by the new check.
 
 				return promiseForAgentResponse; // Pause original tool's response path
 
