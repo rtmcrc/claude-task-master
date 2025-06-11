@@ -180,7 +180,12 @@ jest.unstable_mockModule('../../src/ai-providers/index.js', () => ({
 		generateText: jest.fn(),
 		streamText: jest.fn(),
 		generateObject: jest.fn()
-	}))
+	})),
+	AgentLLMProvider: jest.fn(() => ({
+    generateText: jest.fn(),
+    streamText: jest.fn(),
+    generateObject: jest.fn()
+  }))
 }));
 
 // Mock utils logger, API key resolver, AND findProjectRoot
