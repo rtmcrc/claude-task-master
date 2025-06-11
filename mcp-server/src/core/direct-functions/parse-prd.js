@@ -161,8 +161,15 @@ export async function parsePRDDirect(args, log, context = {}) {
 			'json'
 		);
 
+		// === NEW MODIFICATION START ===
+		if (result && result.needsAgentDelegation === true) {
+			logWrapper.info('parsePRDDirect: Propagating agent_llm_delegation signal.');
+			return result; // This result contains { success, needsAgentDelegation, pendingInteraction, ... }
+		}
+		// === NEW MODIFICATION END ===
+
 		// Adjust check for the new return structure
-		if (result && result.success) {
+		if (result && result.success) { // This now only handles non-delegation successes
 			const successMsg = `Successfully parsed PRD and generated tasks in ${result.tasksPath}`;
 			logWrapper.success(successMsg);
 			return {
@@ -176,8 +183,9 @@ export async function parsePRDDirect(args, log, context = {}) {
 			};
 		} else {
 			// Handle case where core function didn't return expected success structure
+			// (and also wasn't a delegation)
 			logWrapper.error(
-				'Core parsePRD function did not return a successful structure.'
+				'Core parsePRD function did not return a successful structure and was not an agent delegation.'
 			);
 			return {
 				success: false,
