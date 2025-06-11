@@ -15,6 +15,7 @@ import { generateTextService } from '../ai-services-unified.js';
 import { getDefaultSubtasks, getDebugFlag } from '../config-manager.js';
 import generateTaskFiles from './generate-task-files.js';
 import { COMPLEXITY_REPORT_FILE } from '../../../src/constants/paths.js';
+import { normalizeProjectRoot } from '../../../src/utils/path-utils.js';
 
 // --- Zod Schemas (Keep from previous step) ---
 const subtaskSchema = z
@@ -417,9 +418,9 @@ async function expandTask(
 	const outputFormat = mcpLog ? 'json' : 'text';
 
 	// Determine projectRoot: Use from context if available, otherwise derive from tasksPath
-	const projectRoot =
+	let projectRoot =
 		contextProjectRoot || path.dirname(path.dirname(tasksPath));
-
+	projectRoot = normalizeProjectRoot(projectRoot);
 	// Use mcpLog if available, otherwise use the default console log wrapper
 	const logger = mcpLog || {
 		info: (msg) => !isSilentMode() && log('info', msg),
