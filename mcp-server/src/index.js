@@ -114,7 +114,6 @@ class TaskMasterMCPServer {
 			// Normal tool execution
 			const toolResult = await originalExecute(toolArgs, context);
 
-			// After getting toolResult, check for pendingInteraction
 			if (toolResult && toolResult.pendingInteraction && toolResult.pendingInteraction.type === 'agent_llm') {
 				const { interactionId, delegatedCallDetails } = toolResult.pendingInteraction;
 
@@ -123,78 +122,54 @@ class TaskMasterMCPServer {
 					return createErrorResponse(`Internal error: pendingInteraction missing interactionId for ${toolName}`);
 				}
 
-				log.info(`TaskMasterMCPServer: Detected pendingInteraction for '${toolName}'. Interaction ID: ${interactionId}. Delegating to agent_llm tool.`);
+				const agentLLMTool = this.registeredTools.get('agent_llm');
+				// Check for agentLLMTool *before* creating and storing a promise
+				if (!agentLLMTool) {
+					log.error("TaskMasterMCPServer: Critical error - 'agent_llm' tool not found in internal registry. Cannot delegate for tool '" + toolName + "'.");
+					// Note: No pendingData to reject here yet, as the promise hasn't been created.
+					return createErrorResponse("Internal server error: 'agent_llm' tool not found, cannot delegate for " + toolName);
+				}
 
+				log.info(`TaskMasterMCPServer: Detected pendingInteraction for '${toolName}'. Interaction ID: ${interactionId}. Delegating to agent_llm tool.`);
 				const promiseForAgentResponse = new Promise((resolve, reject) => {
 					this.pendingAgentLLMInteractions.set(interactionId, {
 						originalToolName: toolName,
 						originalToolArgs: toolArgs,
-						session, // Original session from FastMCP context
+						session,
 						resolve,
 						reject,
 						timestamp: Date.now(),
 					});
 				});
 
-				// Asynchronously call agent_llm tool (Taskmaster to Agent direction)
-				const agentLLMTool = this.registeredTools.get('agent_llm');
-
-				if (!agentLLMTool) {
-					log.error("TaskMasterMCPServer: Critical error - 'agent_llm' tool not found in internal registry. Cannot delegate to agent_llm.");
-					const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
-					if (pendingData) {
-						pendingData.reject(new Error("Internal server configuration error: 'agent_llm' tool not found in internal registry."));
-						this.pendingAgentLLMInteractions.delete(interactionId);
-					}
-					return createErrorResponse("Internal server error: 'agent_llm' tool not found, cannot delegate.");
-				}
-				// No 'else' needed here for agentLLMTool, as the if block above returns.
-				// This means agentLLMTool is guaranteed to be found if we reach here.
-
-				// Determine projectRoot: from toolArgs, then session, then fallback.
-				// agent_llm.js's withNormalizedProjectRoot will handle final normalization.
-					const projectRoot = toolArgs.projectRoot || session?.roots?.[0]?.uri || '.';
-
-					agentLLMTool.execute({ interactionId, delegatedCallDetails, projectRoot }, { log, session })
-						.then(agentDirectiveResult => {
-							log.info(`TaskMasterMCPServer: agent_llm directive to agent for ID ${interactionId} sent. Agent response: ${JSON.stringify(agentDirectiveResult)}`);
-							// This result is for the agent's MCP client. The original client is awaiting promiseForAgentResponse.
-						})
-						.catch(error => {
-							log.error(`TaskMasterMCPServer: Error calling agent_llm for initial delegation (ID ${interactionId}): ${error.message}`);
-							const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
-							if (pendingData) {
-								pendingData.reject(new Error(`Failed to delegate to agent_llm: ${error.message}`));
-								this.pendingAgentLLMInteractions.delete(interactionId);
-							}
-						});
-				} else {
-					// This 'else' block is now part of the 'if (!agentLLMTool)' check above,
-					// so it's effectively handled. The logic for when agentLLMTool *is* found continues directly.
-				}
-				// Removed the original 'else' for agentLLMTool not found, as it's covered by the new check.
-
-				return promiseForAgentResponse; // Pause original tool's response path
+				const projectRoot = toolArgs.projectRoot || session?.roots?.[0]?.uri || '.';
+				agentLLMTool.execute({ interactionId, delegatedCallDetails, projectRoot }, { log, session })
+					.then(agentDirectiveResult => {
+						log.info(`TaskMasterMCPServer: agent_llm directive to agent for ID ${interactionId} sent. Agent response: ${JSON.stringify(agentDirectiveResult)}`);
+					})
+					.catch(error => {
+						log.error(`TaskMasterMCPServer: Error calling agent_llm for initial delegation (ID ${interactionId}): ${error.message}`);
+						const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
+						if (pendingData) {
+							pendingData.reject(new Error(`Failed to delegate to agent_llm: ${error.message}`));
+							this.pendingAgentLLMInteractions.delete(interactionId);
+						}
+					});
+				return promiseForAgentResponse;
 
 			} else if (toolName === 'agent_llm' && toolResult && toolResult.interactionId && toolResult.hasOwnProperty('finalLLMOutput')) {
-				// This is the agent_llm tool responding with the agent's LLM output
 				const { interactionId, finalLLMOutput, error, status: agentLLMStatus } = toolResult;
 				const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
 
 				if (pendingData) {
 					log.info(`TaskMasterMCPServer: Received agent_llm response for ID ${interactionId}. Resuming original command: ${pendingData.originalToolName}`);
 					if (agentLLMStatus === 'llm_response_error' || error) {
-						// Pass a structured error if possible, or a new error
 						const agentError = error || (typeof finalLLMOutput === 'string' ? new Error(finalLLMOutput) : new Error('Agent LLM call failed'));
 						pendingData.reject(agentError);
 					} else {
-						// Resolve the promise with the agent's LLM output.
-						// This effectively becomes the result of the original tool call.
 						pendingData.resolve(finalLLMOutput);
 					}
 					this.pendingAgentLLMInteractions.delete(interactionId);
-					// The 'toolResult' from this agent_llm call (agent->taskmaster) is for the agent's MCP client.
-					// It confirms that Taskmaster processed its response.
 					return { status: "agent_response_processed_by_taskmaster", interactionId };
 				} else {
 					log.warn(`TaskMasterMCPServer: Received agent_llm response for unknown or expired interaction ID: ${interactionId}`);
@@ -202,7 +177,7 @@ class TaskMasterMCPServer {
 				}
 			}
 
-			// Default: return toolResult as is for non-delegation scenarios
+			// Default case: return the original tool result if no special handling applies
 			return toolResult;
 		};
 	}
