@@ -2,6 +2,13 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { withNormalizedProjectRoot, createErrorResponse } from './utils.js';
 
+/**
+ * When an agent calls this tool to provide an LLM response, the top-level keys in the payload MUST be:
+ * - `interactionId`: (string) The ID from Taskmaster's initial delegation request.
+ * - `projectRoot`: (string) Absolute path to the project.
+ * - `agentLLMResponse`: (object) The wrapper for the agent's actual LLM call results.
+ * Sending any other top-level keys will result in an "unrecognized_keys" error.
+ */
 const agentLLMParameters = z.object({
     interactionId: z.string().optional().describe("ID to track the interaction across calls. Provided by the agent when responding."),
     delegatedCallDetails: z.object({
@@ -50,12 +57,24 @@ function registerAgentLLMTool(server) {
                 }
                 log.info(`agent_llm: Agent providing LLM response for interaction ID: ${args.interactionId}`);
 
-                return {
+                const taskmasterInternalResponse = {
                     toolResponseSource: "agent_to_taskmaster",
                     status: args.agentLLMResponse.status === 'success' ? 'llm_response_completed' : 'llm_response_error',
                     finalLLMOutput: args.agentLLMResponse.data,
                     error: args.agentLLMResponse.errorDetails,
                     interactionId: args.interactionId
+                };
+
+                return {
+                    content: [{
+                        type: "resource",
+                        resource: {
+                            uri: `agent-llm://${args.interactionId}/response`,
+                            mimeType: "application/json",
+                            text: JSON.stringify(taskmasterInternalResponse)
+                        }
+                    }],
+                    isError: taskmasterInternalResponse.status === 'llm_response_error'
                 };
             } else {
                 const errorMsg = "Invalid parameters for agent_llm tool: Must provide either 'delegatedCallDetails' or 'agentLLMResponse'.";
