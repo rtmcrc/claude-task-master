@@ -75,6 +75,10 @@ When Taskmaster is configured to use an "AgentLLM" provider for a specific AI ro
                     // (Streaming aspect through agent_llm needs further clarification if direct streaming is intended)
                     "usage": { "inputTokens": 10, "outputTokens": 5 } // Optional usage data
                 }
+                // Note: For specific Taskmaster operations like `parse_prd` that are delegated as `generateObject` requests,
+                // the `agentLLMResponse.data` should contain the direct structured JSON output (e.g., `{ "tasks": [...], "metadata": {...} }`).
+                // This will be passed through as `finalLLMOutput` by the `agent_llm` tool.
+                // The more generic `data: { "object": ... }` structure is for other types of `generateObject` calls.
             },
             "projectRoot": "/path/to/project" // Agent should provide this
         }
