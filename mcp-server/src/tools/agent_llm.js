@@ -65,17 +65,7 @@ function registerAgentLLMTool(server) {
                     interactionId: args.interactionId
                 };
 
-                return {
-                    content: [{
-                        type: "resource",
-                        resource: {
-                            uri: `agent-llm://${args.interactionId}/response`,
-                            mimeType: "application/json",
-                            text: JSON.stringify(taskmasterInternalResponse)
-                        }
-                    }],
-                    isError: taskmasterInternalResponse.status === 'llm_response_error'
-                };
+                return taskmasterInternalResponse;
             } else {
                 const errorMsg = "Invalid parameters for agent_llm tool: Must provide either 'delegatedCallDetails' or 'agentLLMResponse'.";
                 log.warn(`agent_llm: ${errorMsg} Args: ${JSON.stringify(args)}`);
