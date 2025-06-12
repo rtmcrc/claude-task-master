@@ -228,7 +228,18 @@ class TaskMasterMCPServer {
 						pendingData.resolve(finalLLMOutput);
 					}
 					this.pendingAgentLLMInteractions.delete(interactionId);
-					return { status: "agent_response_processed_by_taskmaster", interactionId };
+					const agentAckMessage = { status: "agent_response_processed_by_taskmaster", interactionId };
+					return {
+						content: [{
+							type: "resource",
+							resource: {
+								uri: `agent-llm://${interactionId}/processed-ack`,
+								mimeType: "application/json",
+								text: JSON.stringify(agentAckMessage)
+							}
+						}],
+						isError: false
+					};
 				} else {
 					// Ensure interactionId is part of this log, it was already included.
 					log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Received agent_llm response for unknown or expired interaction ID: ${interactionId}`);
