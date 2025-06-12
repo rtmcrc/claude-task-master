@@ -163,6 +163,7 @@ class TaskMasterMCPServer {
 				// This promise isn't returned to FastMCP for the original tool call.
 				// FastMCP gets 'toolResult' (the pendingInteraction signal) immediately.
 				new Promise((resolve, reject) => {
+					log.debug(`TaskMasterMCPServer [Interaction: ${interactionId}]: Storing promise context for original tool '${toolName}'.`);
 					this.pendingAgentLLMInteractions.set(interactionId, {
 						originalToolName: toolName,
 						originalToolArgs: toolArgs,
@@ -186,18 +187,21 @@ class TaskMasterMCPServer {
 							if (agentDirectiveResult && agentDirectiveResult.status && agentDirectiveResult.status !== 'pending_agent_llm_action') { // Or check for an error structure
 								 const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
 								 if (pendingData) {
-									log.error(`TaskMasterMCPServer: agent_llm tool failed to format/dispatch request for agent. Details: ${JSON.stringify(agentDirectiveResult.error || agentDirectiveResult)}`);
+									log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Prematurely rejecting and deleting stored promise for '${pendingData.originalToolName}' due to unexpected agent_llm dispatch result. Status: '${agentDirectiveResult?.status}'. Deleting interaction.`);
 									pendingData.reject(new Error(`agent_llm tool failed during dispatch setup: ${agentDirectiveResult.message || JSON.stringify(agentDirectiveResult.error)}`));
 									this.pendingAgentLLMInteractions.delete(interactionId);
 								 }
 							}
 						})
 						.catch(dispatchError => {
-							log.error(`TaskMasterMCPServer: Error during internal dispatch call to agent_llm for ID ${interactionId}: ${dispatchError.message}`);
 							const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
 							if (pendingData) {
+								log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Dispatch to agent_llm failed for original tool '${pendingData.originalToolName}'. Deleting stored promise. Error: ${dispatchError.message}`);
 								pendingData.reject(new Error(`Failed to dispatch to agent_llm: ${dispatchError.message}`));
 								this.pendingAgentLLMInteractions.delete(interactionId);
+							} else {
+								// This case might be rare, if the set() operation itself failed or was cleared before catch.
+								log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Dispatch to agent_llm failed, but no pending data found to reject. Error: ${dispatchError.message}`);
 							}
 						});
 				}); // End of new Promise for internal tracking
@@ -208,20 +212,32 @@ class TaskMasterMCPServer {
 
 			} else if (toolName === 'agent_llm' && toolResult && toolResult.interactionId && toolResult.hasOwnProperty('finalLLMOutput')) {
 				const { interactionId, finalLLMOutput, error, status: agentLLMStatus } = toolResult;
+
+				log.debug(`TaskMasterMCPServer [Interaction: ${interactionId}]: 'agent_llm' tool called (agent callback). Attempting to retrieve promise context. Current map size: ${this.pendingAgentLLMInteractions.size}.`);
+				// For very verbose debugging, uncomment the next line in the actual code if needed:
+				// log.debug(`TaskMasterMCPServer [Interaction: ${interactionId}]: Current interaction IDs in map: ${Array.from(this.pendingAgentLLMInteractions.keys())}`);
+
 				const pendingData = this.pendingAgentLLMInteractions.get(interactionId);
 
 				if (pendingData) {
-					log.info(`TaskMasterMCPServer: Received agent_llm response for ID ${interactionId}. Resuming original command: ${pendingData.originalToolName}`);
+					log.debug(`TaskMasterMCPServer [Interaction: ${interactionId}]: Found pending context for original tool '${pendingData.originalToolName}'. Processing agent response. Deleting interaction from map.`);
 					if (agentLLMStatus === 'llm_response_error' || error) {
 						const agentError = error || (typeof finalLLMOutput === 'string' ? new Error(finalLLMOutput) : new Error('Agent LLM call failed'));
 						pendingData.reject(agentError);
+							}
+						});
+				}); // End of new Promise for internal tracking
+
+				// Return the original tool's result immediately.
+				// This result contains the pendingInteraction signal for the client.
 					} else {
 						pendingData.resolve(finalLLMOutput);
 					}
 					this.pendingAgentLLMInteractions.delete(interactionId);
 					return { status: "agent_response_processed_by_taskmaster", interactionId };
 				} else {
-					log.warn(`TaskMasterMCPServer: Received agent_llm response for unknown or expired interaction ID: ${interactionId}`);
+					// Ensure interactionId is part of this log, it was already included.
+					log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Received agent_llm response for unknown or expired interaction ID: ${interactionId}`);
 					return createErrorResponse(`Agent response for unknown/expired interaction ID: ${interactionId}`);
 				}
 			}

@@ -105,17 +105,23 @@ export async function parsePRDDirect(args, log, context = {}) {
 		};
 	}
 
-	let numTasks = getDefaultNumTasks(projectRoot);
-	if (numTasksArg) {
-		numTasks =
-			typeof numTasksArg === 'string' ? parseInt(numTasksArg, 10) : numTasksArg;
-		if (Number.isNaN(numTasks) || numTasks <= 0) {
-			// Ensure positive number
-			numTasks = getDefaultNumTasks(projectRoot); // Fallback to default if parsing fails or invalid
-			logWrapper.warn(
-				`Invalid numTasks value: ${numTasksArg}. Using default: ${numTasks}`
-			);
+	// Initialize numTasks with the default value first.
+	let numTasks = getDefaultNumTasks(projectRoot); // Ensures numTasks always has a starting value.
+
+	// Check if numTasksArg was actually provided and is not an empty string
+	if (numTasksArg !== undefined && numTasksArg !== null && String(numTasksArg).trim() !== '') {
+		const parsedNumTasksArg = parseInt(String(numTasksArg), 10); // Ensure it's treated as string then parsed
+
+		if (!Number.isNaN(parsedNumTasksArg) && parsedNumTasksArg > 0) {
+			numTasks = parsedNumTasksArg; // Override with valid provided value
+			logWrapper.info(`Using numTasks provided by argument: ${numTasks}`);
+		} else {
+			// Log a warning if parsing failed or value was invalid, but numTasks already holds the default.
+			logWrapper.warn(`Invalid numTasks value provided: '${numTasksArg}'. Using default value: ${numTasks}`);
 		}
+	} else {
+		// Log that default is being used if no argument was provided
+		logWrapper.info(`numTasks argument not provided or empty. Using default value: ${numTasks}`);
 	}
 
 	if (append) {
