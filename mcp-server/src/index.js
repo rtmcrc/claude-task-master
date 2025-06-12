@@ -114,24 +114,38 @@ class TaskMasterMCPServer {
 			// Normal tool execution
 			const toolResult = await originalExecute(toolArgs, context);
 
-			let detectedPendingInteraction = null;
+			let detectedPendingInteractionObj = null; // Variable to hold the actual pendingInteraction object
+
 			if (
 				toolResult &&
 				toolResult.content &&
 				Array.isArray(toolResult.content) &&
 				toolResult.content.length > 0 &&
-				toolResult.content[0] && // Ensure content[0] exists
-				toolResult.content[0].type === "application/x.agent-llm-pending-interaction+json" &&
-				toolResult.content[0].pendingInteraction
+				toolResult.content[0] &&
+				toolResult.content[0].type === "resource" &&
+				toolResult.content[0].resource &&
+				toolResult.content[0].resource.uri === "agent-llm://pending-interaction" &&
+				typeof toolResult.content[0].resource.text === 'string'
 			) {
-				detectedPendingInteraction = toolResult.content[0].pendingInteraction;
+				try {
+					const parsedText = JSON.parse(toolResult.content[0].resource.text);
+					// Validate the structure of the parsed text
+					if (parsedText && parsedText.isAgentLLMPendingInteraction === true && parsedText.details) {
+						detectedPendingInteractionObj = parsedText.details; // This is the actual pendingInteraction data
+					} else {
+						log.warn(`TaskMasterMCPServer: Found 'agent-llm://pending-interaction' resource, but its 'text' field content is not the expected structure for tool '${toolName}'. Text content: ${toolResult.content[0].resource.text}`);
+					}
+				} catch (e) {
+					log.error(`TaskMasterMCPServer: Error parsing JSON from resource.text for 'agent-llm://pending-interaction' for tool '${toolName}'. Error: ${e.message}. Text content: ${toolResult.content[0].resource.text}`);
+				}
 			}
 
-			if (detectedPendingInteraction && detectedPendingInteraction.type === 'agent_llm') {
-				const { interactionId, delegatedCallDetails } = detectedPendingInteraction;
+			// Main conditional logic using the extracted 'detectedPendingInteractionObj'
+			if (detectedPendingInteractionObj && detectedPendingInteractionObj.type === 'agent_llm') {
+				const { interactionId, delegatedCallDetails } = detectedPendingInteractionObj; // Destructure from the 'details' object
 
 				if (!interactionId) {
-					log.error(`TaskMasterMCPServer: pendingInteraction for '${toolName}' (extracted from content) is missing interactionId.`);
+					log.error(`TaskMasterMCPServer: pendingInteraction for '${toolName}' (extracted from resource) is missing interactionId.`);
 					return createErrorResponse(`Internal error: pendingInteraction missing interactionId for ${toolName}`);
 				}
 
