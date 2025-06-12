@@ -114,11 +114,24 @@ class TaskMasterMCPServer {
 			// Normal tool execution
 			const toolResult = await originalExecute(toolArgs, context);
 
-			if (toolResult && toolResult.pendingInteraction && toolResult.pendingInteraction.type === 'agent_llm') {
-				const { interactionId, delegatedCallDetails } = toolResult.pendingInteraction;
+			let detectedPendingInteraction = null;
+			if (
+				toolResult &&
+				toolResult.content &&
+				Array.isArray(toolResult.content) &&
+				toolResult.content.length > 0 &&
+				toolResult.content[0] && // Ensure content[0] exists
+				toolResult.content[0].type === "application/x.agent-llm-pending-interaction+json" &&
+				toolResult.content[0].pendingInteraction
+			) {
+				detectedPendingInteraction = toolResult.content[0].pendingInteraction;
+			}
+
+			if (detectedPendingInteraction && detectedPendingInteraction.type === 'agent_llm') {
+				const { interactionId, delegatedCallDetails } = detectedPendingInteraction;
 
 				if (!interactionId) {
-					log.error(`TaskMasterMCPServer: pendingInteraction for '${toolName}' is missing interactionId.`);
+					log.error(`TaskMasterMCPServer: pendingInteraction for '${toolName}' (extracted from content) is missing interactionId.`);
 					return createErrorResponse(`Internal error: pendingInteraction missing interactionId for ${toolName}`);
 				}
 
