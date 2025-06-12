@@ -68,12 +68,19 @@ export function registerParsePRDTool(server) {
 
 				// Check if agent delegation is needed
 				if (resultFromDirectCall && resultFromDirectCall.needsAgentDelegation === true) {
-					log.info("parse_prd tool: Agent delegation signaled by parsePRDDirect.");
-					// Return the specific structure for the Taskmaster core wrapper to handle
+					log.info("parse_prd tool: Agent delegation signaled by parsePRDDirect. Returning FastMCP-compliant structure.");
+					// Return the FastMCP-compliant structure with custom content type
 					return {
-						status: "pending_agent_llm_delegation", // Informative status for Taskmaster core
-						message: resultFromDirectCall.message, // Message from the direct call
-						pendingInteraction: resultFromDirectCall.pendingInteraction // Key field for Taskmaster core
+						content: [{
+							type: "application/x.agent-llm-pending-interaction+json",
+							pendingInteraction: resultFromDirectCall.pendingInteraction
+						}],
+						isError: false,
+						_meta: { // Optional: for human-readable status/message if it passes through
+							status: "pending_agent_llm_delegation",
+							message: resultFromDirectCall.message,
+							interactionId: resultFromDirectCall.pendingInteraction.interactionId
+						}
 					};
 				} else {
 					// If no delegation, process the result as usual
