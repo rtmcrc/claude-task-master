@@ -190,10 +190,11 @@ export async function parsePRDDirect(args, log, context = {}) {
 		// and NOT the original success object from a non-delegated parsePRD call).
 		logWrapper.info("parsePRDDirect: Evaluating condition for agent data handling...");
 		if (result && Array.isArray(result.tasks) && result.metadata &&
-			result.needsAgentDelegation !== true && typeof result.success === 'undefined') {
+			result.needsAgentDelegation !== true && typeof result.success === 'undefined') { // START OF IF BLOCK
 
 			logWrapper.info("parsePRDDirect: Condition MET for agent data handling. Proceeding to save tasks.");
-			logWrapper.info(`parsePRDDirect: Resumed from agent delegation. Received tasks data. Saving to ${outputPath}`);
+			// The line below was redundant and part of the previous error, removed by this correction.
+			// logWrapper.info(`parsePRDDirect: Resumed from agent delegation. Received tasks data. Saving to ${outputPath}`);
 
 			const agentTasks = result.tasks;
 			// The 'outputData' should be an object with a 'tasks' key, similar to how parsePRD (from task-manager) saves it.
@@ -227,17 +228,17 @@ export async function parsePRDDirect(args, log, context = {}) {
 					}
 				};
 			}
-		}
+		} // END OF IF BLOCK
 		// Existing logic follows
-		logWrapper.info("parsePRDDirect: Evaluating condition for needsAgentDelegation...");
 		else if (result && result.needsAgentDelegation === true) {
+			logWrapper.info("parsePRDDirect: Evaluating condition for needsAgentDelegation..."); // Moved before else if
 			// ... (existing code for propagating delegation signal)
 			logWrapper.info('parsePRDDirect: Propagating agent_llm_delegation signal.'); // Keep this log
 			return result;
 		}
 		// Check for direct success (no delegation involved)
-		logWrapper.info("parsePRDDirect: Evaluating condition for direct success...");
 		else if (result && result.success === true) {
+			logWrapper.info("parsePRDDirect: Evaluating condition for direct success..."); // Moved before else if
 			// ... (existing code for direct success)
 			const successMsg = `Successfully parsed PRD and generated tasks in ${result.tasksPath}`; // Keep this log
 			logWrapper.success(successMsg);
@@ -251,8 +252,8 @@ export async function parsePRDDirect(args, log, context = {}) {
 			};
 		}
 		// Fallback error case
-		logWrapper.info("parsePRDDirect: None of the primary conditions met, entering final else (error) block.");
 		else {
+			logWrapper.info("parsePRDDirect: None of the primary conditions met, evaluating final else (error) block.");// Moved before else
 			// ... (existing code for error)
 			logWrapper.error('Core parsePRD function did not return a successful structure and was not an agent delegation or recognized agent data.');
 			return {
