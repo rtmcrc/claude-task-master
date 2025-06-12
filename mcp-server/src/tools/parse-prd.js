@@ -68,19 +68,21 @@ export function registerParsePRDTool(server) {
 
 				// Check if agent delegation is needed
 				if (resultFromDirectCall && resultFromDirectCall.needsAgentDelegation === true) {
-					log.info("parse_prd tool: Agent delegation signaled by parsePRDDirect. Returning FastMCP-compliant structure.");
-					// Return the FastMCP-compliant structure with custom content type
+					log.info("parse_prd tool: Agent delegation signaled. Returning EmbeddedResource structure.");
+					// Return the new EmbeddedResource structure
 					return {
 						content: [{
-							type: "application/x.agent-llm-pending-interaction+json",
-							pendingInteraction: resultFromDirectCall.pendingInteraction
+							type: "resource", // Standard MCP content type
+							resource: {
+								uri: "agent-llm://pending-interaction", // Conventional URI
+								mimeType: "application/json",         // Specifies that 'text' contains JSON
+								text: JSON.stringify({                // Stringify the actual payload
+									isAgentLLMPendingInteraction: true, // Flag for easy identification
+									details: resultFromDirectCall.pendingInteraction // Core pendingInteraction data
+								})
+							}
 						}],
-						isError: false,
-						_meta: { // Optional: for human-readable status/message if it passes through
-							status: "pending_agent_llm_delegation",
-							message: resultFromDirectCall.message,
-							interactionId: resultFromDirectCall.pendingInteraction.interactionId
-						}
+						isError: false // Standard part of CallToolResult
 					};
 				} else {
 					// If no delegation, process the result as usual
