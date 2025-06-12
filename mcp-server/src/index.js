@@ -224,12 +224,6 @@ class TaskMasterMCPServer {
 					if (agentLLMStatus === 'llm_response_error' || error) {
 						const agentError = error || (typeof finalLLMOutput === 'string' ? new Error(finalLLMOutput) : new Error('Agent LLM call failed'));
 						pendingData.reject(agentError);
-							}
-						});
-				}); // End of new Promise for internal tracking
-
-				// Return the original tool's result immediately.
-				// This result contains the pendingInteraction signal for the client.
 					} else {
 						pendingData.resolve(finalLLMOutput);
 					}
