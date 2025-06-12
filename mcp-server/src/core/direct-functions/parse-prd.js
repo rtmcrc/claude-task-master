@@ -170,14 +170,29 @@ export async function parsePRDDirect(args, log, context = {}) {
 			'json'
 		);
 
+		logWrapper.info(`parsePRDDirect: Resumed from await parsePRD. Result type: ${typeof result}`);
+		if (result && typeof result === 'object') {
+			logWrapper.info(`parsePRDDirect: Result keys: ${Object.keys(result).join(', ')}`);
+			logWrapper.info(`parsePRDDirect: result.tasks is array: ${Array.isArray(result.tasks)}`);
+			logWrapper.info(`parsePRDDirect: result.metadata is object: ${typeof result.metadata === 'object' && result.metadata !== null}`);
+			logWrapper.info(`parsePRDDirect: result.needsAgentDelegation value: ${result.needsAgentDelegation}`);
+			logWrapper.info(`parsePRDDirect: result.success value: ${result.success}`);
+			// Optionally, log a snippet of the result if the above isn't detailed enough for diagnosis
+			// logWrapper.info(`parsePRDDirect: Resumed result (snippet): ${JSON.stringify(result, null, 2)?.substring(0, 500)}`);
+		} else {
+			logWrapper.info(`parsePRDDirect: Resumed result is not an object or is null: ${JSON.stringify(result)}`);
+		}
+
 		// === NEW MODIFICATION START ===
 		// New condition for handling resumed agent data:
 		// Check if 'result' looks like the tasks object from the agent
 		// (e.g., has 'tasks' and 'metadata' properties, and is NOT a delegation signal itself,
 		// and NOT the original success object from a non-delegated parsePRD call).
+		logWrapper.info("parsePRDDirect: Evaluating condition for agent data handling...");
 		if (result && Array.isArray(result.tasks) && result.metadata &&
 			result.needsAgentDelegation !== true && typeof result.success === 'undefined') {
 
+			logWrapper.info("parsePRDDirect: Condition MET for agent data handling. Proceeding to save tasks.");
 			logWrapper.info(`parsePRDDirect: Resumed from agent delegation. Received tasks data. Saving to ${outputPath}`);
 
 			const agentTasks = result.tasks;
@@ -214,12 +229,14 @@ export async function parsePRDDirect(args, log, context = {}) {
 			}
 		}
 		// Existing logic follows
+		logWrapper.info("parsePRDDirect: Evaluating condition for needsAgentDelegation...");
 		else if (result && result.needsAgentDelegation === true) {
 			// ... (existing code for propagating delegation signal)
 			logWrapper.info('parsePRDDirect: Propagating agent_llm_delegation signal.'); // Keep this log
 			return result;
 		}
 		// Check for direct success (no delegation involved)
+		logWrapper.info("parsePRDDirect: Evaluating condition for direct success...");
 		else if (result && result.success === true) {
 			// ... (existing code for direct success)
 			const successMsg = `Successfully parsed PRD and generated tasks in ${result.tasksPath}`; // Keep this log
@@ -235,6 +252,7 @@ export async function parsePRDDirect(args, log, context = {}) {
 			};
 		}
 		// Fallback error case
+		logWrapper.info("parsePRDDirect: None of the primary conditions met, entering final else (error) block.");
 		else {
 			// ... (existing code for error)
 			logWrapper.error('Core parsePRD function did not return a successful structure and was not an agent delegation or recognized agent data.');
