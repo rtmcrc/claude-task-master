@@ -5,6 +5,9 @@
 
 import path from 'path';
 import fs from 'fs';
+// Add these if not already present, adjust paths as necessary
+import { writeJSON } from '../../../../scripts/modules/utils.js';
+import generateTaskFiles from '../../../../scripts/modules/task-manager/generate-task-files.js';
 import { parsePRD } from '../../../../scripts/modules/task-manager.js';
 import {
 	enableSilentMode,
@@ -168,15 +171,58 @@ export async function parsePRDDirect(args, log, context = {}) {
 		);
 
 		// === NEW MODIFICATION START ===
-		if (result && result.needsAgentDelegation === true) {
-			logWrapper.info('parsePRDDirect: Propagating agent_llm_delegation signal.');
-			return result; // This result contains { success, needsAgentDelegation, pendingInteraction, ... }
-		}
-		// === NEW MODIFICATION END ===
+		// New condition for handling resumed agent data:
+		// Check if 'result' looks like the tasks object from the agent
+		// (e.g., has 'tasks' and 'metadata' properties, and is NOT a delegation signal itself,
+		// and NOT the original success object from a non-delegated parsePRD call).
+		if (result && Array.isArray(result.tasks) && result.metadata &&
+			result.needsAgentDelegation !== true && typeof result.success === 'undefined') {
 
-		// Adjust check for the new return structure
-		if (result && result.success) { // This now only handles non-delegation successes
-			const successMsg = `Successfully parsed PRD and generated tasks in ${result.tasksPath}`;
+			logWrapper.info(`parsePRDDirect: Resumed from agent delegation. Received tasks data. Saving to ${outputPath}`);
+
+			const agentTasks = result.tasks;
+			// The 'outputData' should be an object with a 'tasks' key, similar to how parsePRD (from task-manager) saves it.
+			const outputData = { tasks: agentTasks };
+
+			try {
+				writeJSON(outputPath, outputData); // writeJSON is from scripts/modules/utils.js
+				logWrapper.info(`Tasks from agent successfully written to ${outputPath}`);
+
+				// Call generateTaskFiles, similar to how scripts/modules/task-manager/parse-prd.js does it
+				await generateTaskFiles(outputPath, path.dirname(outputPath), { mcpLog: logWrapper });
+				logWrapper.info(`Markdown task files generated for tasks from agent.`);
+
+				const successMsg = `Successfully parsed PRD (via agent) and generated tasks in ${outputPath}`;
+				logWrapper.success(successMsg);
+				return {
+					success: true,
+					data: {
+						message: successMsg,
+						outputPath: outputPath
+						// metadata: result.metadata // Optionally include metadata if useful for the return
+					}
+				};
+			} catch (saveError) {
+				logWrapper.error(`Error saving tasks from agent or generating markdown: ${saveError.message}`);
+				return {
+					success: false,
+					error: {
+						code: 'AGENT_DATA_SAVE_FAILED',
+						message: `Failed to save tasks received from agent: ${saveError.message}`
+					}
+				};
+			}
+		}
+		// Existing logic follows
+		else if (result && result.needsAgentDelegation === true) {
+			// ... (existing code for propagating delegation signal)
+			logWrapper.info('parsePRDDirect: Propagating agent_llm_delegation signal.'); // Keep this log
+			return result;
+		}
+		// Check for direct success (no delegation involved)
+		else if (result && result.success === true) {
+			// ... (existing code for direct success)
+			const successMsg = `Successfully parsed PRD and generated tasks in ${result.tasksPath}`; // Keep this log
 			logWrapper.success(successMsg);
 			return {
 				success: true,
@@ -187,19 +233,16 @@ export async function parsePRDDirect(args, log, context = {}) {
 					tagInfo: result.tagInfo
 				}
 			};
-		} else {
-			// Handle case where core function didn't return expected success structure
-			// (and also wasn't a delegation)
-			logWrapper.error(
-				'Core parsePRD function did not return a successful structure and was not an agent delegation.'
-			);
+		}
+		// Fallback error case
+		else {
+			// ... (existing code for error)
+			logWrapper.error('Core parsePRD function did not return a successful structure and was not an agent delegation or recognized agent data.');
 			return {
 				success: false,
 				error: {
 					code: 'CORE_FUNCTION_ERROR',
-					message:
-						result?.message ||
-						'Core function failed to parse PRD or returned unexpected result.'
+					message: result?.message || 'Core function failed to parse PRD or returned unexpected result.'
 				}
 			};
 		}
