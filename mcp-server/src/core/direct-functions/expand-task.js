@@ -253,22 +253,6 @@ export async function expandTaskDirect(args, log, context = {}) {
 	}
 }
 
-/**
- * Initiates task expansion for delegated AI call (Phase 1).
- * Prepares context and returns an interactionId and AI request details.
- *
- * @param {Object} args - Command arguments.
- * @param {string} args.tasksJsonPath - Path to the tasks.json file.
- * @param {string} args.id - ID of the task to expand.
- * @param {number|string} [args.num] - Number of subtasks to generate.
- * @param {boolean} [args.research=false] - Enable research role.
- * @param {string} [args.prompt] - Additional context for expansion.
- * @param {string} args.projectRoot - Project root directory.
- * @param {Object} [args.clientContext] - Arbitrary client context.
- * @param {Object} log - Logger object.
- * @param {Object} context - Context object containing session data.
- * @returns {Promise<Object>} - Result object with { interactionId, aiServiceRequest, clientContext } or error.
- */
 export async function initiateExpandTaskDirect(args, log, context = {}) {
 	const { session } = context;
 	const {
@@ -283,7 +267,6 @@ export async function initiateExpandTaskDirect(args, log, context = {}) {
 
 	const logWrapper = createLogWrapper(log);
 
-	// Basic validation (tasksJsonPath, id, projectRoot are essential for this phase too)
 	if (!tasksJsonPath || !id || !projectRoot) {
 		logWrapper.error('tasksJsonPath, id, and projectRoot are required for initiateExpandTaskDirect.');
 		return { success: false, error: { code: 'MISSING_ARGUMENT', message: 'tasksJsonPath, id, and projectRoot are required.' }};
@@ -299,33 +282,28 @@ export async function initiateExpandTaskDirect(args, log, context = {}) {
 	const useResearch = research === true;
 	const additionalUserContext = additionalContextPrompt || '';
 
-	// Note: File reading for task validation (e.g., if task exists, not completed)
-	// is typically done in the core `expandTask`. For 'initiate', we might
-	// defer some checks to the 'submit' phase or assume the caller ensures validity.
-	// For now, minimal checks here, core `expandTask` will do more before AI call setup.
-	// The `expandTask` function itself reads tasks.json, so we don't need to here for phase 1.
-
 	const wasSilent = isSilentMode();
 	if (!wasSilent) enableSilentMode();
 
 	try {
+		const coreContextForTaskManager = {
+			mcpLog: logWrapper,
+			session,
+			projectRoot,
+			commandName: 'expand-task-initiate',
+			outputType: 'mcp',
+			clientContext,
+			delegationPhase: 'initiate'
+		};
+
 		const result = await expandTask(
 			tasksJsonPath,
 			taskId,
 			numSubtasks,
 			useResearch,
 			additionalUserContext,
-			{ // Core context for expandTask
-				mcpLog: logWrapper,
-				session,
-				projectRoot,
-				commandName: 'expand-task-initiate', // Distinguish command
-				outputType: 'mcp',
-				clientContext, // Pass through
-				delegationPhase: 'initiate' // Correctly placed here
-			},
-			false // force flag - not relevant for initiate, but expandTask expects it
-			// No 8th argument
+			coreContextForTaskManager,
+			false // forceFlag is not typically relevant for initiate phase but part of signature
 		);
 
 		if (result && result.interactionId && result.aiServiceRequest) {
@@ -337,39 +315,22 @@ export async function initiateExpandTaskDirect(args, log, context = {}) {
 		}
 	} catch (error) {
 		logWrapper.error(`Error initiating task expansion: ${error.message}`);
-		// If expandTask itself throws (e.g. task not found before trying to initiate), catch it.
 		return { success: false, error: { code: 'INITIATE_EXPAND_ERROR', message: error.message }};
 	} finally {
 		if (!wasSilent && isSilentMode()) disableSilentMode();
 	}
 }
 
-/**
- * Submits the AI's response for a previously initiated task expansion (Phase 2).
- * Processes the response, generates subtasks, and saves them.
- *
- * @param {Object} args - Command arguments.
- * @param {string} args.interactionId - The ID of the initiated interaction.
- * @param {string} args.rawLLMResponse - The raw text response from the LLM (JSON string of subtasks).
- * @param {Object} [args.llmUsageData] - Optional LLM usage data.
- * @param {string} args.tasksJsonPath - Path to the tasks.json file.
- * @param {string} args.id - ID of the parent task being expanded.
- * @param {string} args.projectRoot - Project root directory.
- * @param {boolean} [args.force=false] - Force expansion (relevant if original pre-check was bypassed).
- * @param {Object} log - Logger object.
- * @param {Object} context - Context object containing session data.
- * @returns {Promise<Object>} - Result object with success status and data/error information.
- */
 export async function submitExpandTaskResponseDirect(args, log, context = {}) {
 	const { session } = context;
 	const {
 		interactionId,
 		rawLLMResponse,
 		llmUsageData,
-		tasksJsonPath, // Path to tasks.json, needed for writing
-		id,            // Parent task ID
+		tasksJsonPath,
+		id,
 		projectRoot,
-		force = false  // Force flag might be relevant for file writing consistency
+		force = false
 	} = args;
 
 	const logWrapper = createLogWrapper(log);
@@ -385,47 +346,40 @@ export async function submitExpandTaskResponseDirect(args, log, context = {}) {
 		return { success: false, error: { code: 'INPUT_VALIDATION_ERROR', message: 'Valid Task ID is required for submission.' }};
 	}
 
-	// numSubtasks, useResearch, additionalContext are part of the stored interaction context.
-	// The core expandTask will retrieve these via getInteractionContext() if needed by submitDelegatedTextResponseService,
-	// or they are implicitly handled because the AI call is already done.
-
 	const wasSilent = isSilentMode();
 	if (!wasSilent) enableSilentMode();
 
 	try {
-		// The core expandTask function handles reading tasks.json, finding the parent task,
-		// parsing the rawLLMResponse, creating subtasks, and writing back to tasks.json.
+		const coreContextForTaskManager = {
+			mcpLog: logWrapper,
+			session,
+			projectRoot,
+			commandName: 'expand-task-submit',
+			outputType: 'mcp',
+			interactionId,
+			rawLLMResponse,
+			llmUsageData,
+			delegationPhase: 'submit'
+		};
+
 		const result = await expandTask(
 			tasksJsonPath,
 			taskId,
-			null, // numSubtasks - not used for prompt gen in submit, but original value might be in stored context
-			false, // useResearch - similar to numSubtasks
-			'',    // additionalContext - similar to numSubtasks
-			{ // Core context for expandTask
-				mcpLog: logWrapper,
-				session,
-				projectRoot,
-				commandName: 'expand-task-submit', // Distinguish command
-				outputType: 'mcp',
-			},
-			force, // Pass force flag for file operations consistency
-			{ // Delegation context for expandTask
-				delegationPhase: 'submit',
-				interactionId,
-				rawLLMResponse,
-				llmUsageData,
-			}
+			null,
+			false,
+			'',
+			coreContextForTaskManager,
+			force
 		);
 
-		// expandTask in submit phase should return { task, telemetryData } after successful processing
 		if (result && result.task && result.task.subtasks) {
-			const subtasksAdded = result.task.subtasks.length; // Simplified, assumes all are new from this response
+			const subtasksAdded = result.task.subtasks.length;
 			logWrapper.info(`Successfully processed delegated task expansion for task ${taskId}. ${subtasksAdded} subtasks added.`);
 			return {
 				success: true,
 				data: {
 					task: result.task,
-					subtasksAdded, // This might need more accurate calculation if appending to existing from prior submit etc.
+					subtasksAdded,
 					telemetryData: result.telemetryData,
 				},
 			};
