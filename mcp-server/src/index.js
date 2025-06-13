@@ -8,6 +8,7 @@ import { registerTaskMasterTools } from './tools/index.js';
 import { createErrorResponse } from './tools/utils.js'; // Added for error responses
 import { saveTasksFromAgentData } from './core/utils/agent-task-saver.js';
 import { saveExpandedTaskData } from './core/utils/expand-task-saver.js';
+import { saveComplexityReportFromAgent } from './core/utils/complexity-report-saver.js';
 // import { v4 as uuidv4 } from 'uuid'; // Already in agent_llm.js and agent-llm.js, not directly needed here yet unless core generates IDs
 
 // Load environment variables
@@ -291,6 +292,32 @@ class TaskMasterMCPServer {
 							} else {
 								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save subtasks for 'expand_task' due to missing projectRoot, parentTaskId, numSubtasksForAgent, nextSubtaskId, or subtask data.`);
 								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, parentId: ${parentTaskIdNum}, nextId: ${nextSubtaskId}, numSubtasks: ${numSubtasksForAgent}, finalLLMOutput: ${!!finalLLMOutput}`);
+							}
+						}
+						// vvv NEW ELSE IF BLOCK FOR analyze_project_complexity vvv
+						else if (pendingData.originalToolName === 'analyze_project_complexity' && agentLLMStatus !== 'llm_response_error' && finalLLMOutput) {
+							const projectRootForSaving = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri;
+							// 'originalToolArgs' contains threshold, research, ids, from, to which saveComplexityReportFromAgent needs
+							const originalToolArguments = pendingData.originalToolArgs;
+
+							if (projectRootForSaving && finalLLMOutput && originalToolArguments) {
+								log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Post-processing for 'analyze_project_complexity'. Saving complexity report from agent.`);
+
+								saveComplexityReportFromAgent(finalLLMOutput, projectRootForSaving, log, originalToolArguments)
+									.then(saveResult => {
+										if (saveResult.success) {
+											log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Successfully saved complexity report for 'analyze_project_complexity' to ${saveResult.outputPath}.`);
+										} else {
+											log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Failed to save complexity report for 'analyze_project_complexity'. Error: ${saveResult.error}`);
+										}
+									})
+									.catch(saveError => {
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Exception during saving complexity report for 'analyze_project_complexity'. Error: ${saveError.message}`);
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Save error stack: ${saveError.stack}`);
+									});
+							} else {
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save complexity report for 'analyze_project_complexity' due to missing projectRoot, agentOutput, or originalToolArguments.`);
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, finalLLMOutput: ${!!finalLLMOutput}, originalArgs: ${!!originalToolArguments}`);
 							}
 						}
 						// ^^^ NEW ELSE IF BLOCK END ^^^
