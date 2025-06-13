@@ -7,6 +7,7 @@ import logger from './logger.js';
 import { registerTaskMasterTools } from './tools/index.js';
 import { createErrorResponse } from './tools/utils.js'; // Added for error responses
 import { saveTasksFromAgentData } from './core/utils/agent-task-saver.js';
+import { saveExpandedTaskData } from './core/utils/expand-task-saver.js';
 // import { v4 as uuidv4 } from 'uuid'; // Already in agent_llm.js and agent-llm.js, not directly needed here yet unless core generates IDs
 
 // Load environment variables
@@ -172,6 +173,8 @@ class TaskMasterMCPServer {
 						resolve,
 						reject,
 						timestamp: Date.now(),
+						// Store the delegatedCallDetails which includes requestParameters
+						delegatedCallDetails: delegatedCallDetails
 					});
 
 					// Asynchronously dispatch to agent_llm tool.
@@ -252,7 +255,45 @@ class TaskMasterMCPServer {
 								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save tasks for 'parse_prd' due to missing projectRoot.`);
 							}
 						}
-						// ^^^ NEW LOGIC END ^^^
+						// vvv NEW ELSE IF BLOCK FOR expand-task vvv
+						else if (pendingData.originalToolName === 'expand_task' && agentLLMStatus !== 'llm_response_error' && finalLLMOutput) {
+							const projectRootForSaving = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri;
+							// Retrieve parentTaskId from originalToolArgs for 'expand-task'
+							const parentTaskIdString = pendingData.originalToolArgs?.id;
+							const parentTaskIdNum = parentTaskIdString ? parseInt(parentTaskIdString, 10) : null;
+
+							// Retrieve nextSubtaskId and numSubtasksForAgent from the stored delegatedCallDetails
+							const nextSubtaskId = pendingData.delegatedCallDetails?.requestParameters?.nextSubtaskId;
+							const numSubtasksForAgent = pendingData.delegatedCallDetails?.requestParameters?.numSubtasksForAgent;
+
+							if (projectRootForSaving && parentTaskIdNum && finalLLMOutput &&
+								typeof nextSubtaskId === 'number' && typeof numSubtasksForAgent === 'number') {
+
+								log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Post-processing for 'expand_task'. Saving subtasks from agent for parent task ${parentTaskIdNum}.`);
+
+								const originalTaskDetailsForSaver = {
+									numSubtasks: numSubtasksForAgent,
+									nextSubtaskId: nextSubtaskId
+								};
+
+								saveExpandedTaskData(finalLLMOutput, parentTaskIdNum, projectRootForSaving, log, originalTaskDetailsForSaver)
+									.then(saveResult => {
+										if (saveResult.success) {
+											log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Successfully saved subtasks for 'expand_task' (parent ID: ${parentTaskIdNum}).`);
+										} else {
+											log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Failed to save subtasks for 'expand_task'. Error: ${saveResult.error}`);
+										}
+									})
+									.catch(saveError => {
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Exception during saving subtasks for 'expand_task'. Error: ${saveError.message}`);
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Save error stack: ${saveError.stack}`);
+									});
+							} else {
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save subtasks for 'expand_task' due to missing projectRoot, parentTaskId, numSubtasksForAgent, nextSubtaskId, or subtask data.`);
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, parentId: ${parentTaskIdNum}, nextId: ${nextSubtaskId}, numSubtasks: ${numSubtasksForAgent}, finalLLMOutput: ${!!finalLLMOutput}`);
+							}
+						}
+						// ^^^ NEW ELSE IF BLOCK END ^^^
 					}
 					this.pendingAgentLLMInteractions.delete(interactionId);
 					const agentAckMessage = { status: "agent_response_processed_by_taskmaster", interactionId };

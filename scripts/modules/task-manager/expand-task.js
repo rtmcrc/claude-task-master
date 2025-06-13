@@ -587,8 +587,36 @@ async function expandTask(
 				commandName: 'expand-task',
 				outputType: outputFormat
 			});
-			responseText = aiServiceResponse.mainResult;
 
+			// === BEGIN AGENT_LLM_DELEGATION HANDLING ===
+			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
+				logger.info("expandTask (core): Detected agent_llm_delegation signal.");
+				return {
+					needsAgentDelegation: true,
+					pendingInteraction: {
+						type: "agent_llm",
+						interactionId: aiServiceResponse.mainResult.interactionId,
+						delegatedCallDetails: {
+							originalCommand: context.commandName || "expand-task", // context.commandName is from options
+							role: useResearch ? 'research' : 'main',
+							// If we change to generateObjectService for agents, this would be 'generateObject'
+							// and requestParameters.schema would be subtaskWrapperSchema.
+							// For now, assuming agent handles generateText and returns parseable JSON string.
+							serviceType: "generateText",
+							requestParameters: {
+								...aiServiceResponse.mainResult.details, // Spread existing details (prompt, systemPrompt, etc.)
+								nextSubtaskId: nextSubtaskId,           // Add nextSubtaskId
+								numSubtasksForAgent: finalSubtaskCount  // Add finalSubtaskCount (as numSubtasksForAgent)
+							}
+						}
+					}
+					// No 'task' or 'telemetryData' fields here as the operation is pending.
+				};
+			}
+			// === END AGENT_LLM_DELEGATION HANDLING ===
+
+			// Existing logic follows if no delegation:
+			responseText = aiServiceResponse.mainResult;
 			// Parse Subtasks
 			generatedSubtasks = parseSubtasksFromText(
 				responseText,
