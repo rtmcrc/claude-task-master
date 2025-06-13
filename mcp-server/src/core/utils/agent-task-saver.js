@@ -35,9 +35,8 @@ async function saveTasksFromAgentData(tasksData, projectRoot, logWrapper) {
         // Based on parsePRD from task-manager/parse-prd.js, it saves { tasks: finalTasks }
         // So, we should probably do the same:
         const outputToSave = {
-            tasks: tasksData.tasks,
-            // If metadata from agent is valuable to store in tasks.json:
-            metadata: tasksData.metadata
+            tasks: tasksData.tasks
+            // Metadata will not be saved in tasks.json to maintain original format
         };
         // If only tasks should be saved as per original writeJSON in task-manager/parse-prd.js:
         // const outputToSave = { tasks: tasksData.tasks };

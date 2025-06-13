@@ -2,10 +2,32 @@ import fs from 'fs';
 import path from 'path';
 import chalk from 'chalk';
 
-import { log, readJSON } from '../utils.js';
+import { log as cliLog, readJSON } from '../utils.js';
 import { formatDependenciesWithStatus } from '../ui.js';
 import { validateAndFixDependencies } from '../dependency-manager.js';
 import { getDebugFlag } from '../config-manager.js';
+
+function dispatchLog(level, options, ...args) {
+    const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : arg)).join(' ');
+    if (options && options.mcpLog) {
+        const mcpLogger = options.mcpLog;
+        if (typeof mcpLogger[level] === 'function') {
+            mcpLogger[level](message);
+        } else if (level === 'success' && typeof mcpLogger.info === 'function') {
+            // Map 'success' to 'info' if mcpLog.success doesn't exist but info does
+            mcpLogger.info(message);
+        } else if (typeof mcpLogger.info === 'function') {
+            // Default to info if specific level method not found on mcpLogger
+            mcpLogger.info(`[${level.toUpperCase()}] ${message}`);
+        } else {
+            // Fallback if mcpLogger is very basic or unrecognised
+            cliLog('info', `[MCP FALLBACK - ${level.toUpperCase()}] ${message}`);
+        }
+    } else {
+        // Fallback to original CLI logging if mcpLog is not provided
+        cliLog(level, ...args); // Spread original args here for cliLog's formatting
+    }
+}
 
 /**
  * Generate individual task files from tasks.json
@@ -61,7 +83,7 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 		const validTaskIds = allTasksInTag.map((task) => task.id);
 
 		// Cleanup orphaned task files
-		log('info', 'Checking for orphaned task files to clean up...');
+		dispatchLog('info', options, 'Checking for orphaned task files to clean up...');
 		try {
 			const files = fs.readdirSync(outputDir);
 			// Tag-aware file patterns: master -> task_001.txt, other tags -> task_001_tagname.txt
@@ -92,7 +114,7 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			});
 
 			if (orphanedFiles.length > 0) {
-				log(
+				dispatchLog(
 					'info',
 					`Found ${orphanedFiles.length} orphaned task files to remove for tag '${targetTag}'`
 				);
@@ -172,7 +194,7 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			fs.writeFileSync(taskPath, content);
 		});
 
-		log(
+		dispatchLog(
 			'success',
 			`All ${tasksForGeneration.length} tasks for tag '${targetTag}' have been generated into '${outputDir}'.`
 		);
