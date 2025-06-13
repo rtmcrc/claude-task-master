@@ -9,6 +9,7 @@ import { createErrorResponse } from './tools/utils.js'; // Added for error respo
 import { saveTasksFromAgentData } from './core/utils/agent-task-saver.js';
 import { saveExpandedTaskData } from './core/utils/expand-task-saver.js';
 import { saveComplexityReportFromAgent } from './core/utils/complexity-report-saver.js';
+import { saveUpdatedTaskFromAgent } from './core/utils/update-task-saver.js';
 // import { v4 as uuidv4 } from 'uuid'; // Already in agent_llm.js and agent-llm.js, not directly needed here yet unless core generates IDs
 
 // Load environment variables
@@ -318,6 +319,33 @@ class TaskMasterMCPServer {
 							} else {
 								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save complexity report for 'analyze_project_complexity' due to missing projectRoot, agentOutput, or originalToolArguments.`);
 								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, finalLLMOutput: ${!!finalLLMOutput}, originalArgs: ${!!originalToolArguments}`);
+							}
+						}
+						// vvv NEW ELSE IF BLOCK FOR update_task vvv
+						else if (pendingData.originalToolName === 'update_task' && agentLLMStatus !== 'llm_response_error' && finalLLMOutput) {
+							const projectRootForSaving = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri;
+							// 'id' is the parameter name for taskId in the update_task tool
+							const taskIdToUpdate = pendingData.originalToolArgs?.id;
+							const originalToolArguments = pendingData.originalToolArgs; // Contains prompt, research flag etc.
+
+							if (projectRootForSaving && taskIdToUpdate && finalLLMOutput && originalToolArguments) {
+								log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Post-processing for 'update_task'. Saving updated task data from agent for ID ${taskIdToUpdate}.`);
+
+								saveUpdatedTaskFromAgent(finalLLMOutput, taskIdToUpdate, projectRootForSaving, log, originalToolArguments)
+									.then(saveResult => {
+										if (saveResult.success) {
+											log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Successfully saved updated task for 'update_task' (ID: ${taskIdToUpdate}). Actual update occurred: ${saveResult.wasActuallyUpdated}`);
+										} else {
+											log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Failed to save updated task for 'update_task' (ID: ${taskIdToUpdate}). Error: ${saveResult.error}`);
+										}
+									})
+									.catch(saveError => {
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Exception during saving updated task for 'update_task' (ID: ${taskIdToUpdate}). Error: ${saveError.message}`);
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Save error stack: ${saveError.stack}`);
+									});
+							} else {
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save updated task for 'update_task' due to missing projectRoot, taskId, agentOutput, or originalToolArguments.`);
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, taskId: ${taskIdToUpdate}, finalLLMOutput: ${!!finalLLMOutput}, originalArgs: ${!!originalToolArguments}`);
 							}
 						}
 						// ^^^ NEW ELSE IF BLOCK END ^^^
