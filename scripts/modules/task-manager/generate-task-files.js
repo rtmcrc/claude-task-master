@@ -2,10 +2,32 @@ import fs from 'fs';
 import path from 'path';
 import chalk from 'chalk';
 
-import { log, readJSON } from '../utils.js';
+import { log as cliLog, readJSON } from '../utils.js';
 import { formatDependenciesWithStatus } from '../ui.js';
 import { validateAndFixDependencies } from '../dependency-manager.js';
 import { getDebugFlag } from '../config-manager.js';
+
+function dispatchLog(level, options, ...args) {
+    const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : arg)).join(' ');
+    if (options && options.mcpLog) {
+        const mcpLogger = options.mcpLog;
+        if (typeof mcpLogger[level] === 'function') {
+            mcpLogger[level](message);
+        } else if (level === 'success' && typeof mcpLogger.info === 'function') {
+            // Map 'success' to 'info' if mcpLog.success doesn't exist but info does
+            mcpLogger.info(message);
+        } else if (typeof mcpLogger.info === 'function') {
+            // Default to info if specific level method not found on mcpLogger
+            mcpLogger.info(`[${level.toUpperCase()}] ${message}`);
+        } else {
+            // Fallback if mcpLogger is very basic or unrecognised
+            cliLog('info', `[MCP FALLBACK - ${level.toUpperCase()}] ${message}`);
+        }
+    } else {
+        // Fallback to original CLI logging if mcpLog is not provided
+        cliLog(level, ...args); // Spread original args here for cliLog's formatting
+    }
+}
 
 /**
  * Generate individual task files from tasks.json
@@ -29,17 +51,17 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			fs.mkdirSync(outputDir, { recursive: true });
 		}
 
-		log('info', `Preparing to regenerate ${data.tasks.length} task files`);
+		dispatchLog('info', options, `Preparing to regenerate ${data.tasks.length} task files`);
 
 		// Validate and fix dependencies before generating files
-		log('info', `Validating and fixing dependencies`);
+		dispatchLog('info', options, `Validating and fixing dependencies`);
 		validateAndFixDependencies(data, tasksPath);
 
 		// Get valid task IDs from tasks.json
 		const validTaskIds = data.tasks.map((task) => task.id);
 
 		// Cleanup orphaned task files
-		log('info', 'Checking for orphaned task files to clean up...');
+		dispatchLog('info', options, 'Checking for orphaned task files to clean up...');
 		try {
 			// Get all task files in the output directory
 			const files = fs.readdirSync(outputDir);
@@ -57,8 +79,9 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 
 			// Delete orphaned files
 			if (orphanedFiles.length > 0) {
-				log(
+				dispatchLog(
 					'info',
+					options,
 					`Found ${orphanedFiles.length} orphaned task files to remove`
 				);
 
@@ -66,24 +89,25 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 					const filePath = path.join(outputDir, file);
 					try {
 						fs.unlinkSync(filePath);
-						log('info', `Removed orphaned task file: ${file}`);
+						dispatchLog('info', options, `Removed orphaned task file: ${file}`);
 					} catch (err) {
-						log(
+						dispatchLog(
 							'warn',
+							options,
 							`Failed to remove orphaned task file ${file}: ${err.message}`
 						);
 					}
 				});
 			} else {
-				log('info', 'No orphaned task files found');
+				dispatchLog('info', options, 'No orphaned task files found');
 			}
 		} catch (err) {
-			log('warn', `Error cleaning up orphaned task files: ${err.message}`);
+			dispatchLog('warn', options, `Error cleaning up orphaned task files: ${err.message}`);
 			// Continue with file generation even if cleanup fails
 		}
 
 		// Generate task files
-		log('info', 'Generating individual task files...');
+		dispatchLog('info', options, 'Generating individual task files...');
 		data.tasks.forEach((task) => {
 			const taskPath = path.join(
 				outputDir,
@@ -162,11 +186,12 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 
 			// Write the file
 			fs.writeFileSync(taskPath, content);
-			// log('info', `Generated: task_${task.id.toString().padStart(3, '0')}.txt`); // Pollutes the CLI output
+			// dispatchLog('info', options, `Generated: task_${task.id.toString().padStart(3, '0')}.txt`); // Pollutes the CLI output
 		});
 
-		log(
+		dispatchLog(
 			'success',
+			options,
 			`All ${data.tasks.length} tasks have been generated into '${outputDir}'.`
 		);
 
@@ -179,10 +204,11 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			};
 		}
 	} catch (error) {
-		log('error', `Error generating task files: ${error.message}`);
+		// Use dispatchLog for the main error message
+		dispatchLog('error', options, `Error generating task files: ${error.message}`);
 
 		// Only show error UI in CLI mode
-		if (!options?.mcpLog) {
+		if (!options?.mcpLog) { // This condition is key
 			console.error(chalk.red(`Error generating task files: ${error.message}`));
 
 			if (getDebugFlag()) {
