@@ -6,6 +6,7 @@ import fs from 'fs';
 import logger from './logger.js';
 import { registerTaskMasterTools } from './tools/index.js';
 import { createErrorResponse } from './tools/utils.js'; // Added for error responses
+import { saveTasksFromAgentData } from './core/utils/agent-task-saver.js';
 // import { v4 as uuidv4 } from 'uuid'; // Already in agent_llm.js and agent-llm.js, not directly needed here yet unless core generates IDs
 
 // Load environment variables
@@ -226,6 +227,32 @@ class TaskMasterMCPServer {
 						pendingData.reject(agentError);
 					} else {
 						pendingData.resolve(finalLLMOutput);
+						// vvv NEW LOGIC START vvv
+						if (pendingData.originalToolName === 'parse_prd' && agentLLMStatus !== 'llm_response_error' && finalLLMOutput) {
+							const projectRootForSaving = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri;
+
+							if (projectRootForSaving) {
+								log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Post-processing for 'parse_prd'. Attempting to save tasks from agent.`);
+
+								// Fire-and-forget the save operation, but log its outcome.
+								// The agent's acknowledgment should not wait for this.
+								saveTasksFromAgentData(finalLLMOutput, projectRootForSaving, log)
+									.then(saveResult => {
+										if (saveResult.success) {
+											log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Successfully saved tasks for 'parse_prd' to ${saveResult.outputPath}.`);
+										} else {
+											log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Failed to save tasks for 'parse_prd'. Error: ${saveResult.error}`);
+										}
+									})
+									.catch(saveError => {
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Exception during saving tasks for 'parse_prd'. Error: ${saveError.message}`);
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Save error stack: ${saveError.stack}`);
+									});
+							} else {
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save tasks for 'parse_prd' due to missing projectRoot.`);
+							}
+						}
+						// ^^^ NEW LOGIC END ^^^
 					}
 					this.pendingAgentLLMInteractions.delete(interactionId);
 					const agentAckMessage = { status: "agent_response_processed_by_taskmaster", interactionId };
