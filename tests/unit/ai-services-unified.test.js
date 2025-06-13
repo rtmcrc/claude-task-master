@@ -145,8 +145,16 @@ const mockOllamaProvider = {
 	generateObject: jest.fn()
 };
 
+const mockAgentLLMProvider = {
+	generateText: jest.fn().mockResolvedValue({ mainResult: 'mocked agent text', telemetryData: {} }),
+	streamText: jest.fn(),
+	generateObject: jest.fn().mockResolvedValue({ mainResult: { someKey: 'agentValue' }, telemetryData: {} })
+};
+
 // Mock the provider classes to return our mock instances
 jest.unstable_mockModule('../../src/ai-providers/index.js', () => ({
+	__esModule: true, // Added for ES Modules
+	AgentLLMProvider: jest.fn(() => mockAgentLLMProvider), // Added AgentLLMProvider
 	AnthropicAIProvider: jest.fn(() => mockAnthropicProvider),
 	PerplexityAIProvider: jest.fn(() => mockPerplexityProvider),
 	GoogleAIProvider: jest.fn(() => ({
