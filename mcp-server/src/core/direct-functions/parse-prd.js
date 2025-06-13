@@ -188,18 +188,17 @@ export async function parsePRDDirect(args, log, context = {}) {
 		// as this responsibility is now in mcp-server/src/index.js.
 
 		// Existing logic follows, adjusted from 'else if' to 'if' where appropriate.
+
 		logWrapper.info("parsePRDDirect: Evaluating condition for needsAgentDelegation...");
 		if (result && result.needsAgentDelegation === true) { // Now an IF
-			// ... (existing code for propagating delegation signal)
 			logWrapper.info('parsePRDDirect: Propagating agent_llm_delegation signal.'); // Keep this log
 			return result;
 		}
-		// Check for direct success (no delegation involved)
+
 		logWrapper.info("parsePRDDirect: Evaluating condition for direct success...");
 		else if (result && result.success === true) {
-			// ... (existing code for direct success)
-			const successMsg = `Successfully parsed PRD and generated tasks in ${result.tasksPath}`; // Keep this log
-			logWrapper.success(successMsg);
+			const successMsg = `Successfully parsed PRD and generated tasks in ${result.tasksPath}`;
+			logWrapper.success(successMsg); // Ensure this log is inside the block
 			return {
 				success: true,
 				data: {
@@ -210,16 +209,16 @@ export async function parsePRDDirect(args, log, context = {}) {
 				}
 			};
 		}
-		// Fallback error case
+
+		logWrapper.info("parsePRDDirect: None of the primary conditions met, evaluating final else (error) block.");
 		else {
-			logWrapper.info("parsePRDDirect: None of the primary conditions met, evaluating final else (error) block.");
-			// ... (existing code for error)
-			logWrapper.error('Core parsePRD function did not return a successful structure (not agent delegation, not direct success).');
+			const errorMsgDetail = result?.message || 'Core function failed to parse PRD or returned unexpected result.';
+			logWrapper.error(`Core parsePRD function did not return a successful structure (not agent delegation, not direct success). Details: ${errorMsgDetail}`); // Ensure this log is inside the block
 			return {
 				success: false,
 				error: {
 					code: 'CORE_FUNCTION_ERROR',
-					message: result?.message || 'Core function failed to parse PRD or returned unexpected result.'
+					message: errorMsgDetail
 				}
 			};
 		}
