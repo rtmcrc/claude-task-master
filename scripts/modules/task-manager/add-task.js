@@ -902,6 +902,36 @@ async function addTask(
 				});
 				report('DEBUG: generateObjectService returned successfully.', 'debug');
 
+				// === BEGIN AGENT_LLM_DELEGATION HANDLING ===
+				if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
+					report('info', "addTask (core): Detected agent_llm_delegation signal for AI-driven task creation.");
+					if (loadingIndicator) stopLoadingIndicator(loadingIndicator); // Stop CLI loading indicator
+
+					return {
+						needsAgentDelegation: true,
+						pendingInteraction: {
+							type: "agent_llm",
+							interactionId: aiServiceResponse.mainResult.interactionId,
+							delegatedCallDetails: {
+								originalCommand: context.commandName || "add_task",
+								role: serviceRole, // serviceRole is already defined in this scope
+								serviceType: "generateObject",
+								requestParameters: {
+									...aiServiceResponse.mainResult.details, // Includes prompt, systemPrompt, schema, modelId etc.
+									// Pass additional context/args the agent or saver might need:
+									newTaskId: newTaskId, // The ID determined for the new task
+									userDependencies: numericDependencies, // User-specified dependencies
+									userPriority: effectivePriority,     // User-specified or default priority
+									// researchFlag: useResearch, // research flag is already in details.role or similar
+								}
+							}
+						}
+						// No 'newTaskId' or 'telemetryData' at the top level of this return,
+						// as the task creation is pending.
+					};
+				}
+				// === END AGENT_LLM_DELEGATION HANDLING ===
+
 				if (!aiServiceResponse || !aiServiceResponse.mainResult) {
 					throw new Error(
 						'AI service did not return the expected object structure.'
