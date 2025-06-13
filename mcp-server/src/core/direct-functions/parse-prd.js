@@ -190,15 +190,15 @@ export async function parsePRDDirect(args, log, context = {}) {
 		// Existing logic follows, adjusted from 'else if' to 'if' where appropriate.
 
 		logWrapper.info("parsePRDDirect: Evaluating condition for needsAgentDelegation...");
-		if (result && result.needsAgentDelegation === true) { // Now an IF
-			logWrapper.info('parsePRDDirect: Propagating agent_llm_delegation signal.'); // Keep this log
+		if (result && result.needsAgentDelegation === true) {
+			logWrapper.info('parsePRDDirect: Condition for needsAgentDelegation MET. Propagating agent_llm_delegation signal.'); // Combined/moved log
 			return result;
 		}
-
-		logWrapper.info("parsePRDDirect: Evaluating condition for direct success...");
+		// IMPORTANT: Only whitespace or comments are allowed between the above '}' and the 'else if' below.
 		else if (result && result.success === true) {
+			logWrapper.info("parsePRDDirect: Evaluating condition for direct success... Condition MET."); // Log moved inside
 			const successMsg = `Successfully parsed PRD and generated tasks in ${result.tasksPath}`;
-			logWrapper.success(successMsg); // Ensure this log is inside the block
+			logWrapper.success(successMsg);
 			return {
 				success: true,
 				data: {
@@ -208,11 +208,12 @@ export async function parsePRDDirect(args, log, context = {}) {
 				}
 			};
 		}
-
-		logWrapper.info("parsePRDDirect: None of the primary conditions met, evaluating final else (error) block.");
+		// IMPORTANT: Only whitespace or comments are allowed between the above '}' and the 'else' below.
 		else {
+			logWrapper.info("parsePRDDirect: None of the primary conditions met, evaluating final else (error) block... Condition MET."); // Log moved inside
 			const errorMsgDetail = result?.message || 'Core function failed to parse PRD or returned unexpected result.';
-			logWrapper.error(`Core parsePRD function did not return a successful structure (not agent delegation, not direct success). Details: ${errorMsgDetail}`); // Ensure this log is inside the block
+			// The log line below was updated in a previous subtask report, ensure it's the more detailed one.
+			logWrapper.error(`Core parsePRD function did not return a successful structure (not agent delegation, not direct success). Details: ${errorMsgDetail}`);
 			return {
 				success: false,
 				error: {
