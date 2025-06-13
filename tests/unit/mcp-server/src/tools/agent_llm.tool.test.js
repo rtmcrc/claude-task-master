@@ -1,48 +1,67 @@
-import { registerAgentLLMTool } from '../../../../../mcp-server/src/tools/agent_llm.js';
+import { jest } from '@jest/globals'; // Ensure jest is imported for unstable_mockModule
 import { createErrorResponse as actualCreateErrorResponse, withNormalizedProjectRoot as actualWithNormalizedProjectRoot } from '../../../../../mcp-server/src/tools/utils.js';
 
 // Mock uuid to return a fixed value for predictable interactionId testing
-jest.mock('uuid', () => ({
-    v4: () => 'fixed-uuid-for-test',
+// Changed to unstable_mockModule and used jest.fn()
+jest.unstable_mockModule('uuid', () => ({
+    v4: jest.fn(() => 'fixed-uuid-for-test'),
 }));
 
 // Mock parts of the utils module
-jest.mock('../../../../../mcp-server/src/tools/utils.js', () => {
-    const originalModule = jest.requireActual('../../../../../mcp-server/src/tools/utils.js');
+jest.unstable_mockModule('../../../../../mcp-server/src/tools/utils.js', () => {
+    // Since agent_llm.js uses withNormalizedProjectRoot and createErrorResponse, they must be mocked.
+    // Other functions from utils.js might not need explicit mocks if not directly called by agent_llm.js
+    // or if their actual implementation is fine for these tests.
+    // const originalModule = jest.requireActual('../../../../../mcp-server/src/tools/utils.js'); // Not strictly needed if we mock all used ones
     return {
-        ...originalModule,
+        // ...originalModule, // Spread original if some non-mocked functions are needed by agent_llm.js
+        __esModule: true, // Good practice for ESM mocks
         withNormalizedProjectRoot: jest.fn((fn) => fn), // Pass-through for HOF
-        createErrorResponse: jest.fn((message, options) => ({ // Simplified mock for createErrorResponse
+        createErrorResponse: jest.fn((message, options) => ({ // Mock consistent with existing tests
             content: [{ type: 'text', text: `Error: ${message}` }],
             isError: true,
             mcpToolError: options?.mcpToolError || false,
-            errorDetails: message, // Store message for easier assertion
+            errorDetails: message,
         })),
     };
 });
 
 
 describe('agent_llm MCP Tool', () => {
+    let registerAgentLLMTool;
     let execute;
     let mockLog;
     let mockSession;
+    let utilsModule; // To hold the dynamically imported utils
+
+    beforeAll(async () => {
+        // Dynamically import modules after mocks are set up
+        const agentLLMModule = await import('../../../../../mcp-server/src/tools/agent_llm.js');
+        registerAgentLLMTool = agentLLMModule.registerAgentLLMTool;
+        utilsModule = await import('../../../../../mcp-server/src/tools/utils.js');
+        // Note: If tests need to access uuidV4 directly, it should also be dynamically imported here:
+        // const uuid = await import('uuid');
+        // uuidV4 = uuid.v4; // if needed
+    });
 
     beforeEach(() => {
         // Reset mocks for each test
-        jest.clearAllMocks();
+        jest.clearAllMocks(); // Clears all mocks, including those from jest.fn() in uuid and utilsModule
 
         const mockServer = {
             addTool: jest.fn((tool) => {
                 if (tool.name === 'agent_llm') {
-                    // The 'execute' function here is the one that would be registered,
-                    // which includes the withNormalizedProjectRoot wrapper.
-                    // Our mock for withNormalizedProjectRoot makes it a pass-through,
-                    // so we are effectively testing the core logic.
                     execute = tool.execute;
                 }
             }),
         };
-        registerAgentLLMTool(mockServer);
+        // Ensure registerAgentLLMTool is available from beforeAll
+        if (registerAgentLLMTool) {
+            registerAgentLLMTool(mockServer);
+        } else {
+            // This might happen if beforeAll didn't complete or agent_llm.js failed to import
+            throw new Error("registerAgentLLMTool was not loaded by beforeAll. Ensure agent_llm.js can be imported.");
+        }
 
         mockLog = {
             info: jest.fn(),
@@ -140,7 +159,7 @@ describe('agent_llm MCP Tool', () => {
         const result = await execute(args, { log: mockLog, session: mockSession });
 
         // Check based on the mocked createErrorResponse
-        expect(require('../../../../../mcp-server/src/tools/utils.js').createErrorResponse).toHaveBeenCalledWith(
+        expect(utilsModule.createErrorResponse).toHaveBeenCalledWith(
             "agent_llm: Agent response is missing interactionId.",
             { mcpToolError: true }
         );
@@ -155,7 +174,7 @@ describe('agent_llm MCP Tool', () => {
         };
         const result = await execute(args, { log: mockLog, session: mockSession });
 
-        expect(require('../../../../../mcp-server/src/tools/utils.js').createErrorResponse).toHaveBeenCalledWith(
+        expect(utilsModule.createErrorResponse).toHaveBeenCalledWith(
             "Invalid parameters for agent_llm tool: Must provide either 'delegatedCallDetails' or 'agentLLMResponse'.",
             { mcpToolError: true }
         );
