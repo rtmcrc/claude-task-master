@@ -27,8 +27,8 @@ jest.unstable_mockModule('../../../../../mcp-server/src/tools/utils.js', () => {
 });
 
 
-describe('agent_llm MCP Tool', () => {
-    let registerAgentLLMTool;
+describe('mcp_agent_llm MCP Tool', () => {
+    let registerMCPAgentLLMTool;
     let execute;
     let mockLog;
     let mockSession;
@@ -36,8 +36,8 @@ describe('agent_llm MCP Tool', () => {
 
     beforeAll(async () => {
         // Dynamically import modules after mocks are set up
-        const agentLLMModule = await import('../../../../../mcp-server/src/tools/agent_llm.js');
-        registerAgentLLMTool = agentLLMModule.registerAgentLLMTool;
+        const agentLLMModule = await import('../../../../../mcp-server/src/tools/mcp_agent_llm.js');
+        registerMCPAgentLLMTool = agentLLMModule.registerMCPAgentLLMTool;
         utilsModule = await import('../../../../../mcp-server/src/tools/utils.js');
         // Note: If tests need to access uuidV4 directly, it should also be dynamically imported here:
         // const uuid = await import('uuid');
@@ -50,17 +50,17 @@ describe('agent_llm MCP Tool', () => {
 
         const mockServer = {
             addTool: jest.fn((tool) => {
-                if (tool.name === 'agent_llm') {
+                if (tool.name === 'mcp_agent_llm') {
                     execute = tool.execute;
                 }
             }),
         };
-        // Ensure registerAgentLLMTool is available from beforeAll
-        if (registerAgentLLMTool) {
-            registerAgentLLMTool(mockServer);
+        // Ensure registerMCPAgentLLMTool is available from beforeAll
+        if (registerMCPAgentLLMTool) {
+            registerMCPAgentLLMTool(mockServer);
         } else {
-            // This might happen if beforeAll didn't complete or agent_llm.js failed to import
-            throw new Error("registerAgentLLMTool was not loaded by beforeAll. Ensure agent_llm.js can be imported.");
+            // This might happen if beforeAll didn't complete or mcp_agent_llm.js failed to import
+            throw new Error("registerMCPAgentLLMTool was not loaded by beforeAll. Ensure mcp_agent_llm.js can be imported.");
         }
 
         mockLog = {
@@ -128,7 +128,7 @@ describe('agent_llm MCP Tool', () => {
         expect(result.status).toBe("llm_response_completed");
         expect(result.finalLLMOutput).toEqual({ text: 'llm output' });
         expect(result.interactionId).toBe('existing-uuid-success');
-        expect(mockLog.info).toHaveBeenCalledWith("agent_llm: Agent providing LLM response for interaction ID: existing-uuid-success");
+        expect(mockLog.info).toHaveBeenCalledWith("mcp_agent_llm: Agent providing LLM response for interaction ID: existing-uuid-success");
     });
 
     test('Agent-to-Taskmaster flow (error response from agent)', async () => {
@@ -160,12 +160,12 @@ describe('agent_llm MCP Tool', () => {
 
         // Check based on the mocked createErrorResponse
         expect(utilsModule.createErrorResponse).toHaveBeenCalledWith(
-            "agent_llm: Agent response is missing interactionId.",
+            "mcp_agent_llm: Agent response is missing interactionId.",
             { mcpToolError: true }
         );
         expect(result.isError).toBe(true);
-        expect(result.errorDetails).toContain("agent_llm: Agent response is missing interactionId.");
-        expect(mockLog.warn).toHaveBeenCalledWith("agent_llm: Agent response is missing interactionId.");
+        expect(result.errorDetails).toContain("mcp_agent_llm: Agent response is missing interactionId.");
+        expect(mockLog.warn).toHaveBeenCalledWith("mcp_agent_llm: Agent response is missing interactionId.");
     });
 
     test('Error: Invalid Parameters (neither delegatedCallDetails nor agentLLMResponse)', async () => {
@@ -175,11 +175,11 @@ describe('agent_llm MCP Tool', () => {
         const result = await execute(args, { log: mockLog, session: mockSession });
 
         expect(utilsModule.createErrorResponse).toHaveBeenCalledWith(
-            "Invalid parameters for agent_llm tool: Must provide either 'delegatedCallDetails' or 'agentLLMResponse'.",
+            "Invalid parameters for mcp_agent_llm tool: Must provide either 'delegatedCallDetails' or 'agentLLMResponse'.",
             { mcpToolError: true }
         );
         expect(result.isError).toBe(true);
-        expect(result.errorDetails).toContain("Invalid parameters for agent_llm tool");
-        expect(mockLog.warn).toHaveBeenCalledWith(expect.stringContaining("Invalid parameters for agent_llm tool"));
+        expect(result.errorDetails).toContain("Invalid parameters for mcp_agent_llm tool");
+        expect(mockLog.warn).toHaveBeenCalledWith(expect.stringContaining("Invalid parameters for mcp_agent_llm tool"));
     });
 });
