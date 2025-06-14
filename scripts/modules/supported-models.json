@@ -424,7 +424,7 @@
 			"max_tokens": 32768
 		}
 	],
-	"agentllm": [
+	"mcpAgentLLM": [
 		{
 			"id": "agent-delegated-model",
 			"name": "Agent-Managed Model",
