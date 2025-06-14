@@ -1,15 +1,15 @@
-import { AgentLLMProvider } from '../../../../src/ai-providers/agent-llm.js';
+import { MCPAgentLLMProvider } from '../../../../src/ai-providers/mcp-agent-llm.js';
 // No need to mock uuid here, we want to test that it generates a string ID.
 
-describe('AgentLLMProvider', () => {
+describe('MCPAgentLLMProvider', () => {
     let provider;
 
     beforeEach(() => {
-        provider = new AgentLLMProvider();
+        provider = new MCPAgentLLMProvider();
     });
 
     test('constructor sets the provider name correctly', () => {
-        expect(provider.name).toBe('AgentLLM');
+        expect(provider.name).toBe('MCPAgentLLM');
     });
 
     test('validateAuth should always return true', () => {
