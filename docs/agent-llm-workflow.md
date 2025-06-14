@@ -1,28 +1,28 @@
 # Agent LLM Delegation Workflow
 
-This document outlines the workflow for how Taskmaster delegates Large Language Model (LLM) calls to an external agent using the `agent_llm` MCP tool and how the agent should respond.
+This document outlines the workflow for how Taskmaster delegates Large Language Model (LLM) calls to an external agent using the `mcp_agent_llm` MCP tool and how the agent should respond.
 
 ## Overview
 
-When Taskmaster is configured to use an "AgentLLM" provider for a specific AI role (e.g., 'main', 'research'), instead of making a direct LLM call, it signals a delegation request. An external agent is expected to pick up this request, perform the LLM call, and then return the result to Taskmaster. The `agent_llm` MCP tool is the dedicated channel for this communication. An `interactionId` is used to correlate requests and responses.
+When Taskmaster is configured to use an "MCPAgentLLM" provider for a specific AI role (e.g., 'main', 'research'), instead of making a direct LLM call, it signals a delegation request. An external agent is expected to pick up this request, perform the LLM call, and then return the result to Taskmaster. The `mcp_agent_llm` MCP tool is the dedicated channel for this communication. An `interactionId` is used to correlate requests and responses.
 
 ## Workflow Steps
 
 1.  **Taskmaster Initiates a Delegated LLM Call:**
     *   An internal Taskmaster operation (e.g., triggered by a command like `parse-prd` or `generate-tasks`) requires an LLM call (e.g., `generateText`, `streamText`, or `generateObject`).
-    *   The `AgentLLMProvider` in Taskmaster is invoked. Instead of calling an LLM, it generates an `interactionId` and returns a special signal object.
+    *   The `MCPAgentLLMProvider` in Taskmaster is invoked. Instead of calling an LLM, it generates an `interactionId` and returns a special signal object.
     *   This signal propagates up to the `TaskMasterMCPServer`'s core logic.
-    *   The core logic identifies this as a pending agent interaction. It pauses the original operation and prepares to call the `agent_llm` tool.
+    *   The core logic identifies this as a pending agent interaction. It pauses the original operation and prepares to call the `mcp_agent_llm` tool.
 
-2.  **Taskmaster Calls `agent_llm` (Taskmaster -> Agent):**
-    *   The `TaskMasterMCPServer` invokes the `agent_llm` MCP tool with parameters indicating a delegation request *to* the agent.
-    *   The agent's MCP client (which is connected to Taskmaster's MCP server) receives this `agent_llm` tool call. The response from this *specific* `agent_llm` call (which is effectively a directive *to* the agent) will look like this:
+2.  **Taskmaster Calls `mcp_agent_llm` (Taskmaster -> Agent):**
+    *   The `TaskMasterMCPServer` invokes the `mcp_agent_llm` MCP tool with parameters indicating a delegation request *to* the agent.
+    *   The agent's MCP client (which is connected to Taskmaster's MCP server) receives this `mcp_agent_llm` tool call. The response from this *specific* `mcp_agent_llm` call (which is effectively a directive *to* the agent) will look like this:
 
     ```json
     {
         "toolResponseSource": "taskmaster_to_agent",
         "status": "pending_agent_llm_action",
-        "message": "Taskmaster requires an LLM call from the agent. Details provided in llmRequestForAgent. Agent must call agent_llm with this interactionId in response.",
+        "message": "Taskmaster requires an LLM call from the agent. Details provided in llmRequestForAgent. Agent must call mcp_agent_llm with this interactionId in response.",
         "llmRequestForAgent": {
             // These are the parameters the agent needs to make the LLM call
             "apiKey": null, // Typically null, as the agent handles its own LLM auth
@@ -41,26 +41,26 @@ When Taskmaster is configured to use an "AgentLLM" provider for a specific AI ro
         "pendingInteractionSignalToAgent": {
             "type": "agent_must_respond_via_agent_llm",
             "interactionId": "some-unique-uuid-string-generated-by-taskmaster",
-            "instructions": "Agent, please perform the LLM call using llmRequestForAgent and then invoke the 'agent_llm' tool with your response, including this interactionId."
+            "instructions": "Agent, please perform the LLM call using llmRequestForAgent and then invoke the 'mcp_agent_llm' tool with your response, including this interactionId."
         }
     }
     ```
 
 3.  **Agent Performs the LLM Call:**
-    *   The agent receives the above JSON as the result of Taskmaster's `agent_llm` call.
+    *   The agent receives the above JSON as the result of Taskmaster's `mcp_agent_llm` call.
     *   The agent extracts the `llmRequestForAgent` object and the `interactionId`.
     *   Using the details in `llmRequestForAgent` (like `modelId`, `messages`, `maxTokens`, `schema`, etc.), the agent makes the actual LLM call using its own LLM client, API keys, and infrastructure.
     *   The agent can choose any LLM provider it is configured to use for the given `modelId` or its internal routing logic.
 
-4.  **Agent Calls `agent_llm` (Agent -> Taskmaster):**
-    *   Once the agent receives the response (or error) from its LLM call, it must call the `agent_llm` MCP tool on Taskmaster again.
+4.  **Agent Calls `mcp_agent_llm` (Agent -> Taskmaster):**
+    *   Once the agent receives the response (or error) from its LLM call, it must call the `mcp_agent_llm` MCP tool on Taskmaster again.
     *   This call from the agent *back to Taskmaster* must include:
         *   The original `interactionId` received in step 2.
         *   An `agentLLMResponse` object containing the outcome of its LLM call.
 
-    *   **Example `agent_llm` call from Agent (Success):**
+    *   **Example `mcp_agent_llm` call from Agent (Success):**
         ```json
-        // Agent calls Taskmaster's agent_llm tool with these parameters:
+        // Agent calls Taskmaster's mcp_agent_llm tool with these parameters:
         {
             "interactionId": "some-unique-uuid-string-generated-by-taskmaster",
             "agentLLMResponse": {
@@ -71,22 +71,22 @@ When Taskmaster is configured to use an "AgentLLM" provider for a specific AI ro
                     // For generateObject:
                     // "object": { "translation": "Bonjour" },
                     // For streamText, 'data' might be structured differently or
-                    // the agent might need to make multiple calls if streaming directly to agent_llm is complex.
-                    // (Streaming aspect through agent_llm needs further clarification if direct streaming is intended)
+                    // the agent might need to make multiple calls if streaming directly to mcp_agent_llm is complex.
+                    // (Streaming aspect through mcp_agent_llm needs further clarification if direct streaming is intended)
                     "usage": { "inputTokens": 10, "outputTokens": 5 } // Optional usage data
                 }
                 // Note: For specific Taskmaster operations like `parse_prd` that are delegated as `generateObject` requests,
                 // the `agentLLMResponse.data` should contain the direct structured JSON output (e.g., `{ "tasks": [...], "metadata": {...} }`).
-                // This will be passed through as `finalLLMOutput` by the `agent_llm` tool.
+                // This will be passed through as `finalLLMOutput` by the `mcp_agent_llm` tool.
                 // The more generic `data: { "object": ... }` structure is for other types of `generateObject` calls.
             },
             "projectRoot": "/path/to/project" // Agent should provide this
         }
         ```
 
-    *   **Example `agent_llm` call from Agent (Error):**
+    *   **Example `mcp_agent_llm` call from Agent (Error):**
         ```json
-        // Agent calls Taskmaster's agent_llm tool with these parameters:
+        // Agent calls Taskmaster's mcp_agent_llm tool with these parameters:
         {
             "interactionId": "some-unique-uuid-string-generated-by-taskmaster",
             "agentLLMResponse": {
@@ -102,11 +102,11 @@ When Taskmaster is configured to use an "AgentLLM" provider for a specific AI ro
         ```
 
 5.  **Taskmaster Processes Agent's Response & Resumes Original Operation:**
-    *   Taskmaster's `agent_llm` tool receives the call from the agent.
+    *   Taskmaster's `mcp_agent_llm` tool receives the call from the agent.
     *   The `TaskMasterMCPServer` core logic uses the `interactionId` to find the paused operation.
     *   If `agentLLMResponse.status` is `"success"`, the `agentLLMResponse.data` is used as the result of the originally delegated LLM call (e.g., as if `generateText` returned this data). The paused operation resumes and completes.
     *   If `agentLLMResponse.status` is `"error"`, the `agentLLMResponse.errorDetails` are used to signal an error in the paused operation. The operation typically fails or retries based on Taskmaster's internal error handling.
-    *   The `agent_llm` tool itself will respond to the agent's call with a confirmation like:
+    *   The `mcp_agent_llm` tool itself will respond to the agent's call with a confirmation like:
         ```json
         {
             "status": "agent_response_processed_by_taskmaster",
@@ -120,8 +120,8 @@ When Taskmaster is configured to use an "AgentLLM" provider for a specific AI ro
 *   **Authentication & Authorization:** The agent is responsible for its own LLM API keys and authentication. Taskmaster does not pass LLM API keys to the agent.
 *   **Model Mapping:** The agent should be capable of mapping the `modelId` provided by Taskmaster to an actual LLM it can access.
 *   **Error Handling:** If the agent's LLM call fails, it should report this failure clearly using the `agentLLMResponse.status = "error"` and provide details in `agentLLMResponse.errorDetails`.
-*   **`interactionId`:** This ID is crucial. It **must** be included when the agent calls `agent_llm` back.
-*   **`projectRoot`:** The agent needs to provide a valid `projectRoot` when calling `agent_llm` back to Taskmaster, as this is a standard parameter for many MCP tools.
-*   **Streaming:** If the original request was for `streamText`, the agent's handling of this needs careful consideration. The current `agent_llm` tool structure expects a complete response in `agentLLMResponse.data`. True streaming from the agent back through Taskmaster would require a more complex setup (e.g., multiple `agent_llm` calls or a different mechanism). For simplicity, an initial implementation might involve the agent collecting the full streamed response before calling `agent_llm`.
+*   **`interactionId`:** This ID is crucial. It **must** be included when the agent calls `mcp_agent_llm` back.
+*   **`projectRoot`:** The agent needs to provide a valid `projectRoot` when calling `mcp_agent_llm` back to Taskmaster, as this is a standard parameter for many MCP tools.
+*   **Streaming:** If the original request was for `streamText`, the agent's handling of this needs careful consideration. The current `mcp_agent_llm` tool structure expects a complete response in `agentLLMResponse.data`. True streaming from the agent back through Taskmaster would require a more complex setup (e.g., multiple `mcp_agent_llm` calls or a different mechanism). For simplicity, an initial implementation might involve the agent collecting the full streamed response before calling `mcp_agent_llm`.
 
 This workflow enables Taskmaster to offload LLM calls to specialized external agents, providing flexibility in how and where LLM operations are executed.

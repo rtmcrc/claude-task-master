@@ -25,37 +25,37 @@ const agentLLMParameters = z.object({
     projectRoot: z.string().describe("The directory of the project. Must be an absolute path.")
 });
 
-function registerAgentLLMTool(server) {
+function registerMCPAgentLLMTool(server) {
     server.addTool({
-        name: 'agent_llm',
+        name: 'mcp_agent_llm',
         description: 'Manages delegated LLM calls via an agent. Taskmaster uses this to request an LLM call from an agent. The agent uses this to return the LLM response.',
         parameters: agentLLMParameters,
         execute: withNormalizedProjectRoot(async (args, { log, session }) => {
-            log.debug(`agent_llm tool called with args: ${JSON.stringify(args)}`);
+            log.debug(`mcp_agent_llm tool called with args: ${JSON.stringify(args)}`);
 
             if (args.delegatedCallDetails) {
                 const effectiveInteractionId = args.interactionId || uuidv4();
-                log.info(`agent_llm: Taskmaster delegating LLM call for command '${args.delegatedCallDetails.originalCommand}' to agent. Interaction ID: ${effectiveInteractionId}`);
+                log.info(`mcp_agent_llm: Taskmaster delegating LLM call for command '${args.delegatedCallDetails.originalCommand}' to agent. Interaction ID: ${effectiveInteractionId}`);
 
                 return {
                     toolResponseSource: "taskmaster_to_agent",
                     status: "pending_agent_llm_action",
-                    message: "Taskmaster requires an LLM call from the agent. Details provided in llmRequestForAgent. Agent must call agent_llm with this interactionId in response.",
+                    message: "Taskmaster requires an LLM call from the agent. Details provided in llmRequestForAgent. Agent must call mcp_agent_llm with this interactionId in response.",
                     llmRequestForAgent: args.delegatedCallDetails.requestParameters,
                     interactionId: effectiveInteractionId,
                     pendingInteractionSignalToAgent: {
                         type: 'agent_must_respond_via_agent_llm',
                         interactionId: effectiveInteractionId,
-                        instructions: "Agent, please perform the LLM call using llmRequestForAgent and then invoke the 'agent_llm' tool with your response, including this interactionId."
+                        instructions: "Agent, please perform the LLM call using llmRequestForAgent and then invoke the 'mcp_agent_llm' tool with your response, including this interactionId."
                     }
                 };
             } else if (args.agentLLMResponse) {
                 if (!args.interactionId) {
-                    const errorMsg = "agent_llm: Agent response is missing interactionId.";
+                    const errorMsg = "mcp_agent_llm: Agent response is missing interactionId.";
                     log.warn(errorMsg);
                     return createErrorResponse(errorMsg, { mcpToolError: true });
                 }
-                log.info(`agent_llm: Agent providing LLM response for interaction ID: ${args.interactionId}`);
+                log.info(`mcp_agent_llm: Agent providing LLM response for interaction ID: ${args.interactionId}`);
 
                 const taskmasterInternalResponse = {
                     toolResponseSource: "agent_to_taskmaster",
@@ -67,12 +67,12 @@ function registerAgentLLMTool(server) {
 
                 return taskmasterInternalResponse;
             } else {
-                const errorMsg = "Invalid parameters for agent_llm tool: Must provide either 'delegatedCallDetails' or 'agentLLMResponse'.";
-                log.warn(`agent_llm: ${errorMsg} Args: ${JSON.stringify(args)}`);
+                const errorMsg = "Invalid parameters for mcp_agent_llm tool: Must provide either 'delegatedCallDetails' or 'agentLLMResponse'.";
+                log.warn(`mcp_agent_llm: ${errorMsg} Args: ${JSON.stringify(args)}`);
                 return createErrorResponse(errorMsg, { mcpToolError: true });
             }
         })
     });
 }
 
-export { registerAgentLLMTool, agentLLMParameters };
+export { registerMCPAgentLLMTool, agentLLMParameters as mcpAgentLLMParameters };

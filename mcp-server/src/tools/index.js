@@ -29,7 +29,7 @@ import { registerRemoveTaskTool } from './remove-task.js';
 import { registerInitializeProjectTool } from './initialize-project.js';
 import { registerModelsTool } from './models.js';
 import { registerMoveTaskTool } from './move-task.js';
-import { registerAgentLLMTool } from './agent_llm.js';
+import { registerMCPAgentLLMTool } from './mcp_agent_llm.js';
 
 /**
  * Register all Task Master tools with the MCP server
@@ -77,7 +77,7 @@ export function registerTaskMasterTools(server) {
 		registerFixDependenciesTool(server);
 
 		// Group 7: Agent Integration
-		registerAgentLLMTool(server);
+		registerMCPAgentLLMTool(server);
 	} catch (error) {
 		logger.error(`Error registering Task Master tools: ${error.message}`);
 		throw error;

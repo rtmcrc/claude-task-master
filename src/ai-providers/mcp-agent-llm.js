@@ -1,10 +1,10 @@
 import { BaseAIProvider } from './base-provider.js';
 import { v4 as uuidv4 } from 'uuid';
 
-class AgentLLMProvider extends BaseAIProvider {
+class MCPAgentLLMProvider extends BaseAIProvider {
   constructor() {
     super();
-    this.name = 'AgentLLM';
+    this.name = 'MCPAgentLLM';
   }
 
   validateAuth(params) {
@@ -65,4 +65,4 @@ class AgentLLMProvider extends BaseAIProvider {
   }
 }
 
-export { AgentLLMProvider };
+export { MCPAgentLLMProvider };
