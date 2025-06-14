@@ -481,7 +481,7 @@ function getParametersForRole(role, explicitRoot = null) {
 function isApiKeySet(providerName, session = null, projectRoot = null) {
 	// Define the expected environment variable name for each provider
 	const providerNameLower = providerName?.toLowerCase();
-	if (providerNameLower === 'ollama' || providerNameLower === 'bedrock' || providerNameLower === 'agentllm') {
+	if (providerNameLower === 'ollama' || providerNameLower === 'bedrock' || providerNameLower === 'mcpagentllm') {
 		return true; // These providers might not require a key or use other auth.
 	}
 
