@@ -22,6 +22,27 @@ const mockStartLoadingIndicator = jest.fn(() => ({ stop: jest.fn() }));
 const mockStopLoadingIndicator = jest.fn();
 
 // --- Setup mocks using unstable_mockModule (recommended for ES modules) ---
+
+// Mock for ai-services-unified
+jest.unstable_mockModule('../../../scripts/modules/ai-services-unified.js', () => ({
+	generateObjectService: jest.fn().mockResolvedValue({
+		mainResult: {
+			object: {
+				tasks: [{ id: 1, text: "mock task from ai-service" }],
+				metadata: { originalEstimate: 1, confidence: 1, quality: 1 }
+			}
+		},
+		telemetryData: { tokens: 100, cost: 0.01, provider: 'mock-fallback', model: 'mock-fallback-model' }
+	})
+}));
+
+// Mock for task-manager/utils
+jest.unstable_mockModule('../../../scripts/modules/task-manager/utils.js', () => ({
+	readJSON: jest.fn().mockReturnValue({ tasks: [] }), // Default mock for readJSON
+	writeJSON: jest.fn().mockResolvedValue(true) // Default mock for writeJSON
+}));
+
+// Mock for config-manager
 jest.unstable_mockModule('../../../scripts/modules/config-manager.js', () => ({
 	getMainModelId: mockGetMainModelId,
 	getResearchModelId: mockGetResearchModelId,
@@ -30,7 +51,15 @@ jest.unstable_mockModule('../../../scripts/modules/config-manager.js', () => ({
 	setResearchModel: mockSetResearchModel,
 	setFallbackModel: mockSetFallbackModel,
 	getAvailableModels: mockGetAvailableModels,
-	VALID_PROVIDERS: ['anthropic', 'openai']
+	VALID_PROVIDERS: ['anthropic', 'openai', 'agentllm'], // Ensure agentllm is valid
+	// Mocks for API key status
+	isApiKeySet: jest.fn(),
+	getMcpApiKeyStatus: jest.fn(),
+	getAllProviders: jest.fn().mockReturnValue(['agentllm', 'openai', 'anthropic', 'perplexity']),
+	// Mocks for fallback logic
+	getMainProvider: jest.fn(),
+	getFallbackProvider: jest.fn(),
+	getFallbackModelId: jest.fn()
 }));
 
 jest.unstable_mockModule('../../../scripts/modules/ui.js', () => ({
@@ -39,6 +68,7 @@ jest.unstable_mockModule('../../../scripts/modules/ui.js', () => ({
 	log: mockLog,
 	startLoadingIndicator: mockStartLoadingIndicator,
 	stopLoadingIndicator: mockStopLoadingIndicator
+	// displayApiKeyStatus is NOT mocked here, so we can import the actual one
 }));
 
 // --- Mock chalk for consistent output formatting ---
@@ -74,6 +104,13 @@ jest.unstable_mockModule('chalk', () => ({
 
 // --- Import modules (AFTER mock setup) ---
 let configManager, ui, chalk;
+// Import the actual function we want to test from ui.js
+import { displayApiKeyStatus as actualDisplayApiKeyStatus } from '../../../scripts/modules/ui.js';
+// Import the actual parsePRD function and mocked aiServicesUnified
+const parsePRDModule = (await import('../../../scripts/modules/task-manager/parse-prd.js')).default;
+const actualParsePRD = parsePRDModule.default || parsePRDModule; // Handle potential default export wrapping
+import * as aiServicesUnifiedMocks from '../../../scripts/modules/ai-services-unified.js';
+import fs from 'fs'; // Import fs to spy on its methods for specific tests
 
 describe('CLI Models Command (Action Handler Test)', () => {
 	// Setup dynamic imports before tests run
@@ -346,5 +383,150 @@ describe('CLI Models Command (Action Handler Test)', () => {
 		expect(console.log).toHaveBeenCalled();
 		// Check the mocked Table.toString() was used via console.log
 		expect(console.log).toHaveBeenCalledWith('Mock Table Output');
+	});
+});
+
+// --- API Key Status Display Tests ---
+describe('API Key Status Display', () => {
+	let consoleLogSpy;
+	let configManagerMocks; // To access the mocked configManager
+
+	beforeAll(async () => {
+		// Import the mocked configManager to access its jest.fn() mocks
+		configManagerMocks = await import('../../../scripts/modules/config-manager.js');
+	});
+
+	beforeEach(() => {
+		consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+		// Clear mocks before each test
+		if (configManagerMocks && configManagerMocks.isApiKeySet) {
+			configManagerMocks.isApiKeySet.mockClear();
+		}
+		if (configManagerMocks && configManagerMocks.getMcpApiKeyStatus) {
+			configManagerMocks.getMcpApiKeyStatus.mockClear();
+		}
+		// getAllProviders is typically not cleared if its mockReturnValue is static
+	});
+
+	afterEach(() => {
+		if (consoleLogSpy) {
+			consoleLogSpy.mockRestore();
+		}
+	});
+
+	it('should display AgentLLM CLI key as Missing and MCP key as Missing in the status table', () => {
+		// Setup mocks for this specific test case
+		configManagerMocks.isApiKeySet.mockImplementation((providerName) => {
+			if (providerName.toLowerCase() === 'agentllm') return false;
+			if (providerName.toLowerCase() === 'openai') return true;
+			if (providerName.toLowerCase() === 'anthropic') return true;
+			if (providerName.toLowerCase() === 'perplexity') return false; // Example
+			return false;
+		});
+
+		configManagerMocks.getMcpApiKeyStatus.mockImplementation((providerName) => {
+			if (providerName.toLowerCase() === 'agentllm') return false;
+			if (providerName.toLowerCase() === 'openai') return true;
+			if (providerName.toLowerCase() === 'anthropic') return false; // Example
+			if (providerName.toLowerCase() === 'perplexity') return true; // Example
+			return false;
+		});
+
+		// Construct the statusReport array as the models command would
+		const providers = configManagerMocks.getAllProviders(); // Uses the mockReturnValue
+		const statusReport = providers.map(provider => ({
+			provider: provider,
+			cliKeySet: configManagerMocks.isApiKeySet(provider),
+			mcpKeySet: configManagerMocks.getMcpApiKeyStatus(provider)
+		}));
+
+		actualDisplayApiKeyStatus(statusReport); // Call the actual UI function
+
+		const output = consoleLogSpy.mock.calls.map(args => args.join(' ')).join('\n');
+
+		// Check for table header
+		expect(output).toMatch(/Provider\s+│\s*CLI Key \(.env\)\s*│\s*MCP Key \(mcp\.json\)/);
+		// Check for AgentLLM row
+		expect(output).toMatch(/Agentllm\s+│\s*❌ Missing\s+│\s*❌ Missing/);
+		// Check for OpenAI row (as a control)
+		expect(output).toMatch(/Openai\s+│\s*✅ Found\s+│\s*✅ Found/);
+		// Check for Anthropic row (as another control with mixed status)
+		expect(output).toMatch(/Anthropic\s+│\s*✅ Found\s+│\s*❌ Missing/);
+		// Check for Perplexity row (as another control with mixed status)
+		expect(output).toMatch(/Perplexity\s+│\s*❌ Missing\s+│\s*✅ Found/);
+	});
+});
+
+// --- Parse PRD Command Fallback Logic Tests ---
+describe('Parse PRD Command Fallback Logic', () => {
+	let configManagerMocksFromImport;
+	let readFileSyncSpy, existsSyncSpy;
+
+	beforeAll(async () => {
+		configManagerMocksFromImport = await import('../../../scripts/modules/config-manager.js');
+	});
+
+	beforeEach(() => {
+		// Clear mocks
+		if (configManagerMocksFromImport) {
+			configManagerMocksFromImport.getMainProvider?.mockClear();
+			configManagerMocksFromImport.getFallbackProvider?.mockClear();
+			configManagerMocksFromImport.getFallbackModelId?.mockClear();
+			configManagerMocksFromImport.isApiKeySet?.mockClear();
+		}
+		aiServicesUnifiedMocks.generateObjectService.mockClear();
+
+		// Setup default mock implementations for this suite
+		if (configManagerMocksFromImport && configManagerMocksFromImport.isApiKeySet) {
+			configManagerMocksFromImport.isApiKeySet.mockImplementation((provider) => {
+				return provider.toLowerCase() !== 'agentllm'; // AgentLLM key not set, others are
+			});
+		}
+
+		// Spy on fs methods and provide default implementations for this suite
+		readFileSyncSpy = jest.spyOn(fs, 'readFileSync');
+		existsSyncSpy = jest.spyOn(fs, 'existsSync');
+
+		// Default behavior for fs mocks in this suite
+		readFileSyncSpy.mockImplementation((filepath) => {
+			if (filepath === 'mock/prd.txt') {
+				return "This is a mock PRD content.";
+			}
+			return ""; // Default for other files
+		});
+		existsSyncSpy.mockReturnValue(false); // Default to file not existing
+	});
+
+	afterEach(() => {
+		// Restore fs spies
+		readFileSyncSpy.mockRestore();
+		existsSyncSpy.mockRestore();
+	});
+
+	it('should use fallback provider for parse-prd if AgentLLM is main and context is CLI', async () => {
+		// Arrange: Configure mocks for this specific test case
+		configManagerMocksFromImport.getMainProvider.mockReturnValue('agentllm');
+		configManagerMocksFromImport.getFallbackProvider.mockReturnValue('anthropic');
+		configManagerMocksFromImport.getFallbackModelId.mockReturnValue('claude-3-haiku');
+
+		// Ensure tasks.json does not exist for a clean parse
+		existsSyncSpy.mockImplementation(filePath => {
+			if (filePath === 'mock/tasks.json') return false;
+			return true; // Or some other default
+		});
+
+		// Act
+		await actualParsePRD('mock/prd.txt', 'mock/tasks.json', 10, { research: false, projectRoot: '/mock/project' });
+
+		// Assert
+		expect(aiServicesUnifiedMocks.generateObjectService).toHaveBeenCalledTimes(1);
+		const generateObjectServiceArgs = aiServicesUnifiedMocks.generateObjectService.mock.calls[0][0];
+
+		expect(generateObjectServiceArgs.provider).toBe('anthropic');
+		expect(generateObjectServiceArgs.modelId).toBe('claude-3-haiku');
+		// Depending on implementation, role might be explicitly 'fallback' or just not 'main'
+		// For now, checking provider and modelId is the key.
+		// Add expect(generateObjectServiceArgs.role).toBe('fallback'); if applicable.
+		expect(generateObjectServiceArgs.role).not.toBe('main');
 	});
 });

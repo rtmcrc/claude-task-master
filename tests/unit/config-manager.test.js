@@ -727,6 +727,75 @@ describe('getAllProviders', () => {
 	});
 });
 
+// --- isApiKeySet Tests ---
+describe('isApiKeySet', () => {
+	// Import resolveEnvVariable from the mocked utils
+	let mockResolveEnvVariable;
+
+	beforeEach(() => {
+		// Import and reset the mock before each test in this suite
+		// jest.isolateModules is important here to get a fresh mock instance from the utils module factory
+		jest.isolateModules(() => {
+			const utils = require('../../scripts/modules/utils.js');
+			mockResolveEnvVariable = utils.resolveEnvVariable;
+			// It's good practice to reset the mock before each test if it's reused across tests in the suite
+			if (mockResolveEnvVariable && typeof mockResolveEnvVariable.mockReset === 'function') {
+				mockResolveEnvVariable.mockReset();
+			}
+		});
+	});
+
+	test('should return false for agentllm', () => {
+		expect(configManager.isApiKeySet('agentllm')).toBe(false);
+	});
+
+	test('should return true for ollama', () => {
+		expect(configManager.isApiKeySet('ollama')).toBe(true);
+	});
+
+	test('should return true for bedrock', () => {
+		expect(configManager.isApiKeySet('bedrock')).toBe(true);
+	});
+
+	test('should return true for openai if API key is set', () => {
+		mockResolveEnvVariable.mockReturnValue('sk-xxxxxxxxxxxxxxxxxxxxxxxx');
+		expect(configManager.isApiKeySet('openai')).toBe(true);
+		expect(mockResolveEnvVariable).toHaveBeenCalledWith('OPENAI_API_KEY', null, null);
+	});
+
+	test('should return false for openai if API key is not set (empty string)', () => {
+		mockResolveEnvVariable.mockReturnValue('');
+		expect(configManager.isApiKeySet('openai')).toBe(false);
+		expect(mockResolveEnvVariable).toHaveBeenCalledWith('OPENAI_API_KEY', null, null);
+	});
+
+	test('should return false for openai if API key is not set (null)', () => {
+		mockResolveEnvVariable.mockReturnValue(null);
+		expect(configManager.isApiKeySet('openai')).toBe(false);
+		expect(mockResolveEnvVariable).toHaveBeenCalledWith('OPENAI_API_KEY', null, null);
+	});
+
+	test('should return false for openai if API key is a placeholder', () => {
+		mockResolveEnvVariable.mockReturnValue('YOUR_OPENAI_API_KEY_HERE');
+		expect(configManager.isApiKeySet('openai')).toBe(false);
+	});
+
+	test('should return false for an unknown provider', () => {
+		expect(configManager.isApiKeySet('unknown-provider')).toBe(false);
+	});
+
+    test('should return true for anthropic if API key is set and check session/projectRoot args', () => {
+		mockResolveEnvVariable.mockReturnValue('sk-ant-xxxxxxxxxx');
+		expect(configManager.isApiKeySet('anthropic', 'session_mock', 'project_root_mock')).toBe(true);
+		expect(mockResolveEnvVariable).toHaveBeenCalledWith('ANTHROPIC_API_KEY', 'session_mock', 'project_root_mock');
+	});
+
+	test('should return false for perplexity if API key is a placeholder like "KEY_HERE"', () => {
+		mockResolveEnvVariable.mockReturnValue('pplx-KEY_HERE');
+		expect(configManager.isApiKeySet('perplexity')).toBe(false);
+	});
+});
+
 // Add tests for getParametersForRole if needed
 
 // Note: Tests for setMainModel, setResearchModel were removed as the functions were removed in the implementation.

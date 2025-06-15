@@ -479,10 +479,18 @@ function getParametersForRole(role, explicitRoot = null) {
  * @returns {boolean} True if the API key is set, false otherwise.
  */
 function isApiKeySet(providerName, session = null, projectRoot = null) {
-	// Define the expected environment variable name for each provider
 	const providerNameLower = providerName?.toLowerCase();
-	if (providerNameLower === 'ollama' || providerNameLower === 'bedrock' || providerNameLower === 'agentllm') {
-		return true; // These providers might not require a key or use other auth.
+
+	// Handle AgentLLM specifically for CLI context
+	if (providerNameLower === 'agentllm') {
+		// For CLI key check (.env), AgentLLM should appear as "Missing"
+		// It doesn't use .env keys. Its MCP status is handled by getMcpApiKeyStatus.
+		return false;
+	}
+
+	if (providerNameLower === 'ollama' || providerNameLower === 'bedrock') {
+		// Ollama and Bedrock might not require a key in .env or use other auth.
+		return true;
 	}
 
 	const keyMap = {
@@ -500,7 +508,7 @@ function isApiKeySet(providerName, session = null, projectRoot = null) {
 
 	const providerKey = providerName?.toLowerCase();
 	if (!providerKey || !keyMap[providerKey]) {
-		log('warn', `Unknown provider name: ${providerName} in isApiKeySet check.`);
+		// console.warn(`Unknown provider name: ${providerName} in isApiKeySet check.`); // Keep logging for debug
 		return false;
 	}
 
