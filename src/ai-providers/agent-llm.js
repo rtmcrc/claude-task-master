@@ -21,12 +21,12 @@ class AgentLLMProvider extends BaseAIProvider {
     const { modelId, messages, maxTokens, temperature, role, ...restApiParams } = params;
     const interactionId = uuidv4();
     const packagedParams = {
-      apiKey: null, // AgentLLM doesn't use a key in the traditional sense
+      apiKey: null,
       modelId,
       messages,
       maxTokens,
       temperature,
-      role, // Explicitly include the role
+      role, // Explicitly add role here
       baseURL: params.baseURL,
       ...restApiParams,
     };
@@ -42,7 +42,7 @@ class AgentLLMProvider extends BaseAIProvider {
       messages,
       maxTokens,
       temperature,
-      role, // Explicitly include the role
+      role, // Explicitly add role here
       baseURL: params.baseURL,
       ...restApiParams,
     };
@@ -60,7 +60,7 @@ class AgentLLMProvider extends BaseAIProvider {
       temperature,
       schema,
       objectName,
-      role, // Explicitly include the role
+      role, // Explicitly add role here
       baseURL: params.baseURL,
       ...restApiParams,
     };

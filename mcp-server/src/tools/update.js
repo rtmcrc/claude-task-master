@@ -79,52 +79,37 @@ export function registerUpdateTool(server) {
 					{ session }
 				);
 
-				// Check for agent_llm_delegation before standard handling
-				if (result && result.type === 'agent_llm_delegation') {
-					const delegationInfo = result; // result is { type, interactionId, details }
-
-					// Ensure server object is available in context, otherwise this will fail.
-					if (!server || typeof server.callTool !== 'function') {
-						log.error(`${toolName}: Server object with callTool method is not available in context. Cannot call agent_llm tool.`);
-						// Fallback to previous behavior or return an error
-						return createErrorResponse(
-							'Server context error: Cannot delegate to agent_llm tool.',
-							'INTERNAL_SERVER_ERROR'
-						);
-					}
-
-					const paramsForAgentLLMTool = {
-						delegatedCallDetails: {
-							originalCommand: toolName, // Using toolName variable
-							role: delegationInfo.details.role, // 'role' is in details from AgentLLMProvider
-							serviceType: "generateText",     // updateTasks uses generateTextService
-							requestParameters: delegationInfo.details
-						},
-						interactionId: delegationInfo.interactionId,
-						projectRoot: projectRoot // Normalized projectRoot from withNormalizedProjectRoot
-					};
-
+				// New delegation handling: Check for needsAgentDelegation and pendingInteraction
+				if (result && result.needsAgentDelegation === true && result.pendingInteraction) {
 					log.info(
-						`${toolName}: Calling agent_llm tool to handle delegation. Interaction ID: ${delegationInfo.interactionId}, Role: ${delegationInfo.details.role}`
+						`${toolName}: Agent delegation signaled by direct function. Returning 'resource' type for MCP processing. Interaction ID: ${result.pendingInteraction.interactionId}`
 					);
-
-					try {
-						const agentLLMResult = await server.callTool('agent_llm', paramsForAgentLLMTool);
-						log.info(`${toolName}: agent_llm tool call completed. Interaction ID: ${delegationInfo.interactionId}`);
-						return agentLLMResult;
-					} catch (agentLLMError) {
-						log.error(`${toolName}: Error calling agent_llm tool: ${agentLLMError.message}. Interaction ID: ${delegationInfo.interactionId}`);
-						return createErrorResponse(
-							`Error during agent_llm tool call: ${agentLLMError.message}`,
-							'AGENT_LLM_CALL_FAILED'
-						);
-					}
+					return {
+						content: [{
+							type: "resource",
+							resource: {
+								uri: "agent-llm://pending-interaction", // Standardized URI
+								mimeType: "application/json",
+								text: JSON.stringify({
+									// Standardized payload for agent pending interactions
+									isAgentLLMPendingInteraction: true,
+									details: result.pendingInteraction
+								})
+							}
+						}],
+						isError: false
+					};
+				} else {
+					// If not a delegation, or if delegation signal is incomplete, proceed with normal logging and result handling
+					// This handles both successful results from updateTasksDirect (no delegation)
+					// and error objects returned by updateTasksDirect.
+					log.info(
+						`${toolName}: Direct function result (no delegation or incomplete signal): success=${result?.success}, type=${result?.type}`
+					);
+					return handleApiResult(result, log, 'Error updating tasks');
 				}
-
-				// If not a delegation, proceed with normal logging and result handling
-				log.info(
-					`${toolName}: Direct function result: success=${result.success}, type=${result.type}`
-				);
+			} catch (error) {
+				log.error(
 				return handleApiResult(result, log, 'Error updating tasks');
 			} catch (error) {
 				log.error(

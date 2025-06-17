@@ -80,14 +80,14 @@ export async function updateTasksDirect(args, log, context = {}) {
 			'json'
 		);
 
-		// Check for agent_llm_delegation first
-		if (result && result.type === 'agent_llm_delegation') {
-			logWrapper.info('updateTasks returned agent_llm_delegation, passing it up.');
-			return result; // Pass delegation object up to the tool processor
-		}
-
-		// If not a delegation, proceed with normal success/error handling
-		if (result && result.success && Array.isArray(result.updatedTasks)) {
+		// New handling logic based on needsAgentDelegation
+		if (result && result.needsAgentDelegation === true) {
+			logWrapper.info('updateTasks signaled needsAgentDelegation. Propagating this structure.');
+			// The result object is { needsAgentDelegation: true, pendingInteraction: ..., success: true }
+			// This is now considered a "successful" outcome for updateTasksDirect, to be handled by the calling tool.
+			return result;
+		} else if (result && result.success && Array.isArray(result.updatedTasks)) {
+			// This is the normal success path (no delegation)
 			logWrapper.success(
 				`Successfully updated ${result.updatedTasks.length} tasks.`
 			);
@@ -97,27 +97,28 @@ export async function updateTasksDirect(args, log, context = {}) {
 					message: `Successfully updated ${result.updatedTasks.length} tasks.`,
 					tasksPath: tasksJsonPath,
 					updatedCount: result.updatedTasks.length,
-					telemetryData: result.telemetryData
+					telemetryData: result.telemetryData // Ensure telemetryData is passed through
 				}
 			};
 		} else {
-			// Handle case where core function didn't return expected success structure
-			// and it's not a delegation
+			// Handle core function errors or unexpected results when not a delegation
 			logWrapper.error(
-				'Core updateTasks function did not return a successful structure or a known delegation type.'
+				'Core updateTasks function did not return a successful structure or signal agent delegation.'
 			);
 			return {
 				success: false,
 				error: {
 					code: 'CORE_FUNCTION_ERROR',
 					message:
-						result?.message ||
-						'Core function failed to update tasks or returned unexpected result (not a delegation).'
+						result?.message || // Use message from result if available
+						'Core function failed to update tasks or returned an unexpected structure.'
 				}
 			};
 		}
 	} catch (error) {
-		logWrapper.error(`Error executing core updateTasks: ${error.message}`);
+		// This catch block handles errors thrown by updateTasks itself (e.g., file read errors, critical issues)
+		// or errors thrown by the new delegation logic if isMCP is false.
+		logWrapper.error(`Error executing core updateTasks or processing its result: ${error.message}`);
 		return {
 			success: false,
 			error: {

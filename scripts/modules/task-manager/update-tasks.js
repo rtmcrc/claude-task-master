@@ -378,14 +378,29 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
 				// This is an agent_llm_delegation
 				if (isMCP) {
-					logFn.info('Returning agent_llm_delegation object (mainResult) for MCP processing.');
-					return aiServiceResponse.mainResult; // Return the actual delegation object
+					const delegationInfo = aiServiceResponse.mainResult;
+					const pendingInteraction = {
+						type: "agent_llm", // Standardized type for this kind of pending action
+						interactionId: delegationInfo.interactionId,
+						delegatedCallDetails: {
+							originalCommand: "update", // The invoking tool's name
+							role: delegationInfo.details.role, // Role from provider details
+							serviceType: "generateText",       // Service type used by updateTasks
+							requestParameters: delegationInfo.details // All params for the LLM call
+						}
+					};
+					logFn.info('AgentLLM delegation detected. Returning needsAgentDelegation structure.');
+					return {
+						needsAgentDelegation: true,
+						pendingInteraction: pendingInteraction,
+						success: true // Indicates overall success of this step, pending agent action
+					};
 				} else {
 					logFn.error('AgentLLM delegation is not supported in CLI mode for updateTasks.');
 					throw new Error('AgentLLM delegation is not supported in CLI mode for updateTasks.');
 				}
 			} else {
-				// This is a normal response (or an error from generateTextService that needs to be handled by outer catch)
+				// This is a normal response (or an error from generateTextService that needs to be handled by the outer catch)
 				// Ensure aiServiceResponse.mainResult is the text to parse
 				const textToParse = aiServiceResponse.mainResult;
 
