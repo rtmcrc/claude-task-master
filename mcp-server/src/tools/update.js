@@ -45,7 +45,9 @@ export function registerUpdateTool(server) {
 					'The directory of the project. (Optional, usually from session)'
 				)
 		}),
-		execute: withNormalizedProjectRoot(async (args, { log, session }) => {
+		// Assuming 'server' will be available in the context passed by withNormalizedProjectRoot
+		// e.g., by modifying withNormalizedProjectRoot or how context is built.
+		execute: withNormalizedProjectRoot(async (args, { log, session, server }) => {
 			const toolName = 'update';
 			const { from, prompt, research, file, projectRoot } = args;
 
@@ -79,22 +81,44 @@ export function registerUpdateTool(server) {
 
 				// Check for agent_llm_delegation before standard handling
 				if (result && result.type === 'agent_llm_delegation') {
-					const delegationData = result; // result is the delegation object { type, interactionId, details }
-					log.info(
-						`${toolName}: Detected agent_llm_delegation. Returning pending_agent_llm_action structure for MCP processing. Interaction ID: ${delegationData.interactionId}`
-					);
-					return {
-						status: "pending_agent_llm_action",
-						message: "Tool 'update' requires an LLM call from the agent. Details provided in llmRequestForAgent.",
-						llmRequestForAgent: delegationData.details,
-						interactionId: delegationData.interactionId,
-						pendingInteractionSignalToAgent: {
-							type: 'agent_must_respond_via_agent_llm',
-							interactionId: delegationData.interactionId,
-							instructions: "Agent, please perform the LLM call for the 'update' tool using llmRequestForAgent and then invoke 'agent_llm' with your response, including this interactionId.",
-							originalCommandName: "update"
-						}
+					const delegationInfo = result; // result is { type, interactionId, details }
+
+					// Ensure server object is available in context, otherwise this will fail.
+					if (!server || typeof server.callTool !== 'function') {
+						log.error(`${toolName}: Server object with callTool method is not available in context. Cannot call agent_llm tool.`);
+						// Fallback to previous behavior or return an error
+						return createErrorResponse(
+							'Server context error: Cannot delegate to agent_llm tool.',
+							'INTERNAL_SERVER_ERROR'
+						);
+					}
+
+					const paramsForAgentLLMTool = {
+						delegatedCallDetails: {
+							originalCommand: toolName, // Using toolName variable
+							role: delegationInfo.details.role, // 'role' is in details from AgentLLMProvider
+							serviceType: "generateText",     // updateTasks uses generateTextService
+							requestParameters: delegationInfo.details
+						},
+						interactionId: delegationInfo.interactionId,
+						projectRoot: projectRoot // Normalized projectRoot from withNormalizedProjectRoot
 					};
+
+					log.info(
+						`${toolName}: Calling agent_llm tool to handle delegation. Interaction ID: ${delegationInfo.interactionId}, Role: ${delegationInfo.details.role}`
+					);
+
+					try {
+						const agentLLMResult = await server.callTool('agent_llm', paramsForAgentLLMTool);
+						log.info(`${toolName}: agent_llm tool call completed. Interaction ID: ${delegationInfo.interactionId}`);
+						return agentLLMResult;
+					} catch (agentLLMError) {
+						log.error(`${toolName}: Error calling agent_llm tool: ${agentLLMError.message}. Interaction ID: ${delegationInfo.interactionId}`);
+						return createErrorResponse(
+							`Error during agent_llm tool call: ${agentLLMError.message}`,
+							'AGENT_LLM_CALL_FAILED'
+						);
+					}
 				}
 
 				// If not a delegation, proceed with normal logging and result handling

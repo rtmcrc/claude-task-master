@@ -506,6 +506,7 @@ async function _unifiedServiceRunner(serviceType, params) {
 				maxTokens: roleParams.maxTokens,
 				temperature: roleParams.temperature,
 				messages,
+				role: currentRole, // Add currentRole here
 				...(baseURL && { baseURL }),
 				...(serviceType === 'generateObject' && { schema, objectName }),
 				...providerSpecificParams,

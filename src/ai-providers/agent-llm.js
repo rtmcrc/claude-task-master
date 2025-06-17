@@ -18,22 +18,23 @@ class AgentLLMProvider extends BaseAIProvider {
   }
 
   generateText(params) {
-    const { modelId, messages, maxTokens, temperature, ...restApiParams } = params;
+    const { modelId, messages, maxTokens, temperature, role, ...restApiParams } = params;
     const interactionId = uuidv4();
     const packagedParams = {
-      apiKey: null,
+      apiKey: null, // AgentLLM doesn't use a key in the traditional sense
       modelId,
       messages,
       maxTokens,
       temperature,
-      baseURL: params.baseURL, // Though likely not used by agent-llm directly
+      role, // Explicitly include the role
+      baseURL: params.baseURL,
       ...restApiParams,
     };
     return { type: 'agent_llm_delegation', interactionId, details: packagedParams };
   }
 
   streamText(params) {
-    const { modelId, messages, maxTokens, temperature, ...restApiParams } = params;
+    const { modelId, messages, maxTokens, temperature, role, ...restApiParams } = params;
     const interactionId = uuidv4();
     const packagedParams = {
       apiKey: null,
@@ -41,14 +42,15 @@ class AgentLLMProvider extends BaseAIProvider {
       messages,
       maxTokens,
       temperature,
-      baseURL: params.baseURL, // Though likely not used by agent-llm directly
+      role, // Explicitly include the role
+      baseURL: params.baseURL,
       ...restApiParams,
     };
     return { type: 'agent_llm_delegation', interactionId, details: packagedParams };
   }
 
   generateObject(params) {
-    const { modelId, messages, maxTokens, temperature, schema, objectName, ...restApiParams } = params;
+    const { modelId, messages, maxTokens, temperature, schema, objectName, role, ...restApiParams } = params;
     const interactionId = uuidv4();
     const packagedParams = {
       apiKey: null,
@@ -58,7 +60,8 @@ class AgentLLMProvider extends BaseAIProvider {
       temperature,
       schema,
       objectName,
-      baseURL: params.baseURL, // Though likely not used by agent-llm directly
+      role, // Explicitly include the role
+      baseURL: params.baseURL,
       ...restApiParams,
     };
     return { type: 'agent_llm_delegation', interactionId, details: packagedParams };
