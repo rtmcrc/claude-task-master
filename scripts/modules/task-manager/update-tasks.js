@@ -374,94 +374,71 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 				stopLoadingIndicator(loadingIndicator, 'AI update complete.');
 			}
 
-			// Handle agent_llm_delegation
-			if (aiServiceResponse && aiServiceResponse.type === 'agent_llm_delegation') {
+			// Refined handling for agent_llm_delegation and normal responses
+			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
+				// This is an agent_llm_delegation
 				if (isMCP) {
-					logFn.info('AI service returned agent_llm_delegation, returning response directly.');
-					return aiServiceResponse; // Pass delegation object up
+					logFn.info('Returning agent_llm_delegation object (mainResult) for MCP processing.');
+					return aiServiceResponse.mainResult; // Return the actual delegation object
 				} else {
-					logFn.error('Agent LLM delegation is not supported in CLI mode for updateTasks.');
-					// In CLI mode, this is an unexpected state.
-					// Throw an error or return a structured error if preferred by CLI error handling.
-					throw new Error('Agent LLM delegation is not supported in CLI mode for updateTasks.');
-					// Alternatively, return an error object:
-					// return { success: false, message: 'Agent delegation not supported in CLI mode for updateTasks' };
+					logFn.error('AgentLLM delegation is not supported in CLI mode for updateTasks.');
+					throw new Error('AgentLLM delegation is not supported in CLI mode for updateTasks.');
 				}
-			}
+			} else {
+				// This is a normal response (or an error from generateTextService that needs to be handled by outer catch)
+				// Ensure aiServiceResponse.mainResult is the text to parse
+				const textToParse = aiServiceResponse.mainResult;
 
-			// If not a delegation, proceed with parsing and updating tasks
-			// Use the mainResult (text) for parsing
-			const parsedUpdatedTasks = parseUpdatedTasksFromText(
-				aiServiceResponse.mainResult, // Assuming mainResult contains the text for parsing
-				tasksToUpdate.length,
-				logFn,
-				isMCP
-			);
+				// Proceed with parsing and updating tasks
+				const parsedUpdatedTasks = parseUpdatedTasksFromText(
+					textToParse,
+					tasksToUpdate.length,
+					logFn,
+					isMCP
+				);
 
-			// --- Update Tasks Data (Unchanged) ---
-			if (!Array.isArray(parsedUpdatedTasks)) {
-				// Should be caught by parser, but extra check
-				throw new Error(
-					'Parsed AI response for updated tasks was not an array.'
-				);
-			}
-			if (isMCP)
-				logFn.info(
-					`Received ${parsedUpdatedTasks.length} updated tasks from AI.`
-				);
-			else
-				logFn(
-					'info',
-					`Received ${parsedUpdatedTasks.length} updated tasks from AI.`
-				);
-			// Create a map for efficient lookup
-			const updatedTasksMap = new Map(
-				parsedUpdatedTasks.map((task) => [task.id, task])
-			);
-
-			let actualUpdateCount = 0;
-			data.tasks.forEach((task, index) => {
-				if (updatedTasksMap.has(task.id)) {
-					// Only update if the task was part of the set sent to AI
-					data.tasks[index] = updatedTasksMap.get(task.id);
-					actualUpdateCount++;
+				if (!Array.isArray(parsedUpdatedTasks)) {
+					throw new Error('Parsed AI response for updated tasks was not an array.');
 				}
-			});
-			if (isMCP)
-				logFn.info(
-					`Applied updates to ${actualUpdateCount} tasks in the dataset.`
-				);
-			else
-				logFn(
-					'info',
-					`Applied updates to ${actualUpdateCount} tasks in the dataset.`
+
+				if (isMCP) logFn.info(`Received ${parsedUpdatedTasks.length} updated tasks from AI.`);
+				else logFn('info', `Received ${parsedUpdatedTasks.length} updated tasks from AI.`);
+
+				const updatedTasksMap = new Map(
+					parsedUpdatedTasks.map((task) => [task.id, task])
 				);
 
-			writeJSON(tasksPath, data);
-			if (isMCP)
-				logFn.info(
-					`Successfully updated ${actualUpdateCount} tasks in ${tasksPath}`
-				);
-			else
-				logFn(
-					'success',
-					`Successfully updated ${actualUpdateCount} tasks in ${tasksPath}`
-				);
-			await generateTaskFiles(tasksPath, path.dirname(tasksPath));
+				let actualUpdateCount = 0;
+				data.tasks.forEach((task, index) => {
+					if (updatedTasksMap.has(task.id)) {
+						data.tasks[index] = updatedTasksMap.get(task.id);
+						actualUpdateCount++;
+					}
+				});
 
-			if (outputFormat === 'text' && aiServiceResponse.telemetryData) {
-				displayAiUsageSummary(aiServiceResponse.telemetryData, 'cli');
+				if (isMCP) logFn.info(`Applied updates to ${actualUpdateCount} tasks in the dataset.`);
+				else logFn('info', `Applied updates to ${actualUpdateCount} tasks in the dataset.`);
+
+				writeJSON(tasksPath, data);
+				if (isMCP) logFn.info(`Successfully updated ${actualUpdateCount} tasks in ${tasksPath}`);
+				else logFn('success', `Successfully updated ${actualUpdateCount} tasks in ${tasksPath}`);
+
+				await generateTaskFiles(tasksPath, path.dirname(tasksPath));
+
+				if (outputFormat === 'text' && aiServiceResponse.telemetryData) {
+					displayAiUsageSummary(aiServiceResponse.telemetryData, 'cli');
+				}
+
+				return {
+					success: true,
+					updatedTasks: parsedUpdatedTasks,
+					telemetryData: aiServiceResponse.telemetryData
+				};
 			}
-
-			return {
-				success: true,
-				updatedTasks: parsedUpdatedTasks,
-				telemetryData: aiServiceResponse.telemetryData
-			};
 		} catch (error) {
 			if (loadingIndicator) stopLoadingIndicator(loadingIndicator);
-			if (isMCP) logFn.error(`Error during AI service call: ${error.message}`);
-			else logFn('error', `Error during AI service call: ${error.message}`);
+			if (isMCP) logFn.error(`Error during AI service call or task processing: ${error.message}`);
+			else logFn('error', `Error during AI service call or task processing: ${error.message}`);
 			if (error.message.includes('API key')) {
 				if (isMCP)
 					logFn.error(
