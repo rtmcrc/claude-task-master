@@ -374,6 +374,20 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 				stopLoadingIndicator(loadingIndicator, 'AI update complete.');
 			}
 
+			if (isMCP) {
+				logFn.info(`updateTasks: generateTextService resolved. Full aiServiceResponse: ${JSON.stringify(aiServiceResponse)}`);
+				if (aiServiceResponse) {
+					logFn.info(`updateTasks: aiServiceResponse.mainResult type: ${typeof aiServiceResponse.mainResult}`);
+					if (typeof aiServiceResponse.mainResult === 'string') {
+						logFn.info(`updateTasks: aiServiceResponse.mainResult (first 100 chars): ${aiServiceResponse.mainResult.substring(0,100)}`);
+					} else {
+						logFn.info(`updateTasks: aiServiceResponse.mainResult (full): ${JSON.stringify(aiServiceResponse.mainResult)}`);
+					}
+				} else {
+					logFn.warn('updateTasks: aiServiceResponse is null or undefined after generateTextService resolution.');
+				}
+			}
+
 			// Refined handling for agent_llm_delegation and normal responses
 			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
 				// This is an agent_llm_delegation
@@ -401,12 +415,20 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 				}
 			} else {
 				// This is a normal response (or an error from generateTextService that needs to be handled by the outer catch)
-				// Ensure aiServiceResponse.mainResult is the text to parse
-				const textToParse = aiServiceResponse.mainResult;
+				if (isMCP) {
+					logFn.info('updateTasks: Resuming with (presumed) agent data or direct LLM response.');
+				}
+
+				const textToParse = aiServiceResponse ? aiServiceResponse.mainResult : null;
+
+				if (typeof textToParse !== 'string' || !textToParse.trim()) {
+					logFn.error(`updateTasks: mainResult is not a valid non-empty string. Actual type: ${typeof textToParse}. Content (if not string or empty): ${textToParse === null ? 'null' : textToParse === undefined ? 'undefined' : JSON.stringify(textToParse).substring(0,100)}. Cannot parse.`);
+					throw new Error('Failed to get valid text content from AI service response for parsing.');
+				}
 
 				// Proceed with parsing and updating tasks
 				const parsedUpdatedTasks = parseUpdatedTasksFromText(
-					textToParse,
+					textToParse, // Use the validated textToParse
 					tasksToUpdate.length,
 					logFn,
 					isMCP
@@ -447,7 +469,7 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 				return {
 					success: true,
 					updatedTasks: parsedUpdatedTasks,
-					telemetryData: aiServiceResponse.telemetryData
+					telemetryData: aiServiceResponse ? aiServiceResponse.telemetryData : null
 				};
 			}
 		} catch (error) {
