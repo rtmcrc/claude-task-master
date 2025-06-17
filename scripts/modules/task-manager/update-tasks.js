@@ -370,12 +370,29 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 				outputType: isMCP ? 'mcp' : 'cli'
 			});
 
-			if (loadingIndicator)
+			if (loadingIndicator) {
 				stopLoadingIndicator(loadingIndicator, 'AI update complete.');
+			}
 
+			// Handle agent_llm_delegation
+			if (aiServiceResponse && aiServiceResponse.type === 'agent_llm_delegation') {
+				if (isMCP) {
+					logFn.info('AI service returned agent_llm_delegation, returning response directly.');
+					return aiServiceResponse; // Pass delegation object up
+				} else {
+					logFn.error('Agent LLM delegation is not supported in CLI mode for updateTasks.');
+					// In CLI mode, this is an unexpected state.
+					// Throw an error or return a structured error if preferred by CLI error handling.
+					throw new Error('Agent LLM delegation is not supported in CLI mode for updateTasks.');
+					// Alternatively, return an error object:
+					// return { success: false, message: 'Agent delegation not supported in CLI mode for updateTasks' };
+				}
+			}
+
+			// If not a delegation, proceed with parsing and updating tasks
 			// Use the mainResult (text) for parsing
 			const parsedUpdatedTasks = parseUpdatedTasksFromText(
-				aiServiceResponse.mainResult,
+				aiServiceResponse.mainResult, // Assuming mainResult contains the text for parsing
 				tasksToUpdate.length,
 				logFn,
 				isMCP

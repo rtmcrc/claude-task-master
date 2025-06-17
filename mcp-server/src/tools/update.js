@@ -77,8 +77,17 @@ export function registerUpdateTool(server) {
 					{ session }
 				);
 
+				// Check for agent_llm_delegation before standard handling
+				if (result && result.type === 'agent_llm_delegation') {
+					log.info(
+						`${toolName}: updateTasksDirect returned agent_llm_delegation. Forwarding to MCP server.`
+					);
+					return result; // Pass delegation object up to MCP server
+				}
+
+				// If not a delegation, proceed with normal logging and result handling
 				log.info(
-					`${toolName}: Direct function result: success=${result.success}`
+					`${toolName}: Direct function result: success=${result.success}, type=${result.type}`
 				);
 				return handleApiResult(result, log, 'Error updating tasks');
 			} catch (error) {

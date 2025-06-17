@@ -80,6 +80,13 @@ export async function updateTasksDirect(args, log, context = {}) {
 			'json'
 		);
 
+		// Check for agent_llm_delegation first
+		if (result && result.type === 'agent_llm_delegation') {
+			logWrapper.info('updateTasks returned agent_llm_delegation, passing it up.');
+			return result; // Pass delegation object up to the tool processor
+		}
+
+		// If not a delegation, proceed with normal success/error handling
 		if (result && result.success && Array.isArray(result.updatedTasks)) {
 			logWrapper.success(
 				`Successfully updated ${result.updatedTasks.length} tasks.`
@@ -95,8 +102,9 @@ export async function updateTasksDirect(args, log, context = {}) {
 			};
 		} else {
 			// Handle case where core function didn't return expected success structure
+			// and it's not a delegation
 			logWrapper.error(
-				'Core updateTasks function did not return a successful structure.'
+				'Core updateTasks function did not return a successful structure or a known delegation type.'
 			);
 			return {
 				success: false,
@@ -104,7 +112,7 @@ export async function updateTasksDirect(args, log, context = {}) {
 					code: 'CORE_FUNCTION_ERROR',
 					message:
 						result?.message ||
-						'Core function failed to update tasks or returned unexpected result.'
+						'Core function failed to update tasks or returned unexpected result (not a delegation).'
 				}
 			};
 		}
