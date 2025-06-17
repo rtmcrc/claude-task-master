@@ -79,10 +79,22 @@ export function registerUpdateTool(server) {
 
 				// Check for agent_llm_delegation before standard handling
 				if (result && result.type === 'agent_llm_delegation') {
+					const delegationData = result; // result is the delegation object { type, interactionId, details }
 					log.info(
-						`${toolName}: updateTasksDirect returned agent_llm_delegation. Forwarding to MCP server.`
+						`${toolName}: Detected agent_llm_delegation. Returning pending_agent_llm_action structure for MCP processing. Interaction ID: ${delegationData.interactionId}`
 					);
-					return result; // Pass delegation object up to MCP server
+					return {
+						status: "pending_agent_llm_action",
+						message: "Tool 'update' requires an LLM call from the agent. Details provided in llmRequestForAgent.",
+						llmRequestForAgent: delegationData.details,
+						interactionId: delegationData.interactionId,
+						pendingInteractionSignalToAgent: {
+							type: 'agent_must_respond_via_agent_llm',
+							interactionId: delegationData.interactionId,
+							instructions: "Agent, please perform the LLM call for the 'update' tool using llmRequestForAgent and then invoke 'agent_llm' with your response, including this interactionId.",
+							originalCommandName: "update"
+						}
+					};
 				}
 
 				// If not a delegation, proceed with normal logging and result handling
