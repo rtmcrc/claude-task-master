@@ -234,17 +234,29 @@ async function updateTasks(
 	// Flag to easily check which logger type we have
 	const isMCP = !!mcpLog;
 
-	if (isMCP)
-		logFn.info(`updateTasks called with context: session=${!!session}`);
-	else logFn('info', `updateTasks called`); // CLI log
+	const report = (level, ...args) => {
+		if (isMCP) {
+			// When isMCP is true, logFn is mcpLog.
+			// mcpLog comes from context.mcpLog and is expected to have methods.
+			if (logFn && typeof logFn[level] === 'function') {
+				logFn[level](...args);
+			} else if (logFn && typeof logFn.info === 'function') { // Fallback to .info for mcpLog
+				logFn.info(`[${level.toUpperCase()}]`, ...args);
+			} else {
+				// Absolute fallback if mcpLog is strange, though unlikely.
+				console.log(`[${level.toUpperCase()}]`, ...args);
+			}
+		} else if (!isSilentMode()) {
+			// When isMCP is false, logFn is consoleLog from ../utils.js
+			// consoleLog expects (level, ...args)
+			logFn(level, ...args);
+		}
+	};
+
+	report('info', isMCP ? `updateTasks called with context: session=${!!session}` : `updateTasks called`);
 
 	try {
-		if (isMCP) logFn.info(`Updating tasks from ID ${fromId}`);
-		else
-			logFn(
-				'info',
-				`Updating tasks from ID ${fromId} with prompt: "${prompt}"`
-			);
+		report('info', isMCP ? `Updating tasks from ID ${fromId}` : `Updating tasks from ID ${fromId} with prompt: "${prompt}"`);
 
 		// --- Task Loading/Filtering (Unchanged) ---
 		const data = readJSON(tasksPath);
@@ -254,10 +266,7 @@ async function updateTasks(
 			(task) => task.id >= fromId && task.status !== 'done'
 		);
 		if (tasksToUpdate.length === 0) {
-			if (isMCP)
-				logFn.info(`No tasks to update (ID >= ${fromId} and not 'done').`);
-			else
-				logFn('info', `No tasks to update (ID >= ${fromId} and not 'done').`);
+			report('info', `No tasks to update (ID >= ${fromId} and not 'done').`);
 			if (outputFormat === 'text') console.log(/* yellow message */);
 			return; // Nothing to do
 		}
@@ -375,16 +384,16 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 			}
 
 			if (isMCP) {
-				logFn.info(`updateTasks: generateTextService resolved. Full aiServiceResponse: ${JSON.stringify(aiServiceResponse)}`);
+				report('info', `updateTasks: generateTextService resolved. Full aiServiceResponse: ${JSON.stringify(aiServiceResponse)}`);
 				if (aiServiceResponse) {
-					logFn.info(`updateTasks: aiServiceResponse.mainResult type: ${typeof aiServiceResponse.mainResult}`);
+					report('info', `updateTasks: aiServiceResponse.mainResult type: ${typeof aiServiceResponse.mainResult}`);
 					if (typeof aiServiceResponse.mainResult === 'string') {
-						logFn.info(`updateTasks: aiServiceResponse.mainResult (first 100 chars): ${aiServiceResponse.mainResult.substring(0,100)}`);
+						report('info', `updateTasks: aiServiceResponse.mainResult (first 100 chars): ${aiServiceResponse.mainResult.substring(0,100)}`);
 					} else {
-						logFn.info(`updateTasks: aiServiceResponse.mainResult (full): ${JSON.stringify(aiServiceResponse.mainResult)}`);
+						report('info', `updateTasks: aiServiceResponse.mainResult (full): ${JSON.stringify(aiServiceResponse.mainResult)}`);
 					}
 				} else {
-					logFn.warn('updateTasks: aiServiceResponse is null or undefined after generateTextService resolution.');
+					report('warn', 'updateTasks: aiServiceResponse is null or undefined after generateTextService resolution.');
 				}
 			}
 
@@ -403,26 +412,26 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 							requestParameters: delegationInfo.details // All params for the LLM call
 						}
 					};
-					logFn.info('AgentLLM delegation detected. Returning needsAgentDelegation structure.');
+					report('info', 'AgentLLM delegation detected. Returning needsAgentDelegation structure.');
 					return {
 						needsAgentDelegation: true,
 						pendingInteraction: pendingInteraction,
 						success: true // Indicates overall success of this step, pending agent action
 					};
 				} else {
-					logFn.error('AgentLLM delegation is not supported in CLI mode for updateTasks.');
+					report('error', 'AgentLLM delegation is not supported in CLI mode for updateTasks.');
 					throw new Error('AgentLLM delegation is not supported in CLI mode for updateTasks.');
 				}
 			} else {
 				// This is a normal response (or an error from generateTextService that needs to be handled by the outer catch)
 				if (isMCP) {
-					logFn.info('updateTasks: Resuming with (presumed) agent data or direct LLM response.');
+					report('info', 'updateTasks: Resuming with (presumed) agent data or direct LLM response.');
 				}
 
 				const textToParse = aiServiceResponse ? aiServiceResponse.mainResult : null;
 
 				if (typeof textToParse !== 'string' || !textToParse.trim()) {
-					logFn.error(`updateTasks: mainResult is not a valid non-empty string. Actual type: ${typeof textToParse}. Content (if not string or empty): ${textToParse === null ? 'null' : textToParse === undefined ? 'undefined' : JSON.stringify(textToParse).substring(0,100)}. Cannot parse.`);
+					report('error', `updateTasks: mainResult is not a valid non-empty string. Actual type: ${typeof textToParse}. Content (if not string or empty): ${textToParse === null ? 'null' : textToParse === undefined ? 'undefined' : JSON.stringify(textToParse).substring(0,100)}. Cannot parse.`);
 					throw new Error('Failed to get valid text content from AI service response for parsing.');
 				}
 
@@ -438,8 +447,7 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 					throw new Error('Parsed AI response for updated tasks was not an array.');
 				}
 
-				if (isMCP) logFn.info(`Received ${parsedUpdatedTasks.length} updated tasks from AI.`);
-				else logFn('info', `Received ${parsedUpdatedTasks.length} updated tasks from AI.`);
+				report('info', `Received ${parsedUpdatedTasks.length} updated tasks from AI.`);
 
 				const updatedTasksMap = new Map(
 					parsedUpdatedTasks.map((task) => [task.id, task])
@@ -453,12 +461,10 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 					}
 				});
 
-				if (isMCP) logFn.info(`Applied updates to ${actualUpdateCount} tasks in the dataset.`);
-				else logFn('info', `Applied updates to ${actualUpdateCount} tasks in the dataset.`);
+				report('info', `Applied updates to ${actualUpdateCount} tasks in the dataset.`);
 
 				writeJSON(tasksPath, data);
-				if (isMCP) logFn.info(`Successfully updated ${actualUpdateCount} tasks in ${tasksPath}`);
-				else logFn('success', `Successfully updated ${actualUpdateCount} tasks in ${tasksPath}`);
+				report(isMCP ? 'info' : 'success', `Successfully updated ${actualUpdateCount} tasks in ${tasksPath}`);
 
 				await generateTaskFiles(tasksPath, path.dirname(tasksPath));
 
@@ -474,18 +480,9 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 			}
 		} catch (error) {
 			if (loadingIndicator) stopLoadingIndicator(loadingIndicator);
-			if (isMCP) logFn.error(`Error during AI service call or task processing: ${error.message}`);
-			else logFn('error', `Error during AI service call or task processing: ${error.message}`);
+			report('error', `Error during AI service call or task processing: ${error.message}`);
 			if (error.message.includes('API key')) {
-				if (isMCP)
-					logFn.error(
-						'Please ensure API keys are configured correctly in .env or mcp.json.'
-					);
-				else
-					logFn(
-						'error',
-						'Please ensure API keys are configured correctly in .env or mcp.json.'
-					);
+				report('error', 'Please ensure API keys are configured correctly in .env or mcp.json.');
 			}
 			throw error;
 		} finally {
@@ -493,9 +490,10 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 		}
 	} catch (error) {
 		// --- General Error Handling (Unchanged) ---
-		if (isMCP) logFn.error(`Error updating tasks: ${error.message}`);
-		else logFn('error', `Error updating tasks: ${error.message}`);
+		report('error', `Error updating tasks: ${error.message}`);
 		if (outputFormat === 'text') {
+			// For CLI, console.error is fine as it's not going through the report function.
+			// This is for direct user feedback, not structured logging.
 			console.error(chalk.red(`Error: ${error.message}`));
 			if (getDebugFlag(session)) {
 				console.error(error);
