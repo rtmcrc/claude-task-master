@@ -507,4 +507,4 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 	}
 }
 
-export default updateTasks;
+export { updateTasks as default, parseUpdatedTasksFromText };
