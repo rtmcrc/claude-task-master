@@ -422,6 +422,9 @@ async function _unifiedServiceRunner(serviceType, params) {
 
 			// Get AI parameters for the current role
 			roleParams = getParametersForRole(currentRole, effectiveProjectRoot);
+
+			log('info', `_unifiedServiceRunner: Attempting AI service call with role: '${currentRole}', Provider: '${providerName}', Model: '${modelId}'`);
+
 			apiKey = _resolveApiKey(
 				providerName?.toLowerCase(),
 				session,
@@ -578,15 +581,17 @@ async function _unifiedServiceRunner(serviceType, params) {
 				telemetryData: telemetryData
 			};
 		} catch (error) {
-			const cleanMessage = _extractErrorMessage(error);
-			log(
-				'error',
-				`Service call failed for role ${currentRole} (Provider: ${providerName || 'unknown'}, Model: ${modelId || 'unknown'}): ${cleanMessage}`
-			);
-			lastError = error;
-			lastCleanErrorMessage = cleanMessage;
+			if (error.message.startsWith("AgentLLM_CLI_UNSUPPORTED:")) {
+				log('warn', `_unifiedServiceRunner: Role '${currentRole}' with AgentLLM provider skipped in CLI mode as it's unsupported. Attempting next role/provider if available.`);
+			} else {
+				// This is the existing error logging for other failures
+				const cleanMessage = _extractErrorMessage(error);
+				log('error', `_unifiedServiceRunner: Service call failed for role '${currentRole}' (Provider: '${providerName || 'unknown'}', Model: '${modelId || 'unknown'}'): ${cleanMessage}`);
+			}
+			lastError = error; // This line should remain to capture the error for potential re-throw
+			lastCleanErrorMessage = _extractErrorMessage(error); // Update lastCleanErrorMessage with the current error
 
-			if (serviceType === 'generateObject') {
+			if (serviceType === 'generateObject' && !error.message.startsWith("AgentLLM_CLI_UNSUPPORTED:")) {
 				const lowerCaseMessage = cleanMessage.toLowerCase();
 				if (
 					lowerCaseMessage.includes(

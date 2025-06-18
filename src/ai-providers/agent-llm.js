@@ -20,7 +20,7 @@ class AgentLLMProvider extends BaseAIProvider {
   generateText(params) {
     const { modelId, messages, maxTokens, temperature, role, outputType, ...restApiParams } = params;
     if (outputType === 'cli') {
-        throw new Error("AgentLLM provider is not supported in CLI mode and requires an MCP context.");
+        throw new Error("AgentLLM_CLI_UNSUPPORTED: AgentLLM provider is not supported in CLI mode and requires an MCP context.");
     }
     const interactionId = uuidv4();
     const packagedParams = {
@@ -39,7 +39,7 @@ class AgentLLMProvider extends BaseAIProvider {
   streamText(params) {
     const { modelId, messages, maxTokens, temperature, role, outputType, ...restApiParams } = params;
     if (outputType === 'cli') {
-        throw new Error("AgentLLM provider is not supported in CLI mode and requires an MCP context.");
+        throw new Error("AgentLLM_CLI_UNSUPPORTED: AgentLLM provider is not supported in CLI mode and requires an MCP context.");
     }
     const interactionId = uuidv4();
     const packagedParams = {
@@ -58,7 +58,7 @@ class AgentLLMProvider extends BaseAIProvider {
   generateObject(params) {
     const { modelId, messages, maxTokens, temperature, schema, objectName, role, outputType, ...restApiParams } = params;
     if (outputType === 'cli') {
-        throw new Error("AgentLLM provider is not supported in CLI mode and requires an MCP context.");
+        throw new Error("AgentLLM_CLI_UNSUPPORTED: AgentLLM provider is not supported in CLI mode and requires an MCP context.");
     }
     const interactionId = uuidv4();
     const packagedParams = {
