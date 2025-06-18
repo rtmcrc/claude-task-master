@@ -11,6 +11,7 @@ import { saveExpandedTaskData } from './core/utils/expand-task-saver.js';
 import { saveComplexityReportFromAgent } from './core/utils/complexity-report-saver.js';
 import { saveUpdatedTaskFromAgent } from './core/utils/update-task-saver.js';
 import { saveNewTaskFromAgent } from './core/utils/add-task-saver.js';
+import { saveMultipleTasksFromAgent } from './core/utils/agent-bulk-task-saver.js';
 // import { v4 as uuidv4 } from 'uuid'; // Already in agent_llm.js and agent-llm.js, not directly needed here yet unless core generates IDs
 
 // Load environment variables
@@ -374,6 +375,35 @@ class TaskMasterMCPServer {
 							} else {
 								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save new task for 'add_task' due to missing projectRoot, agentOutput, originalToolArguments, or delegatedRequestParams.`);
 								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, finalLLMOutput: ${!!finalLLMOutput}, originalArgs: ${!!originalToolArguments}, delegatedParams: ${!!delegatedRequestParams}`);
+							}
+						}
+						// vvv NEW ELSE IF BLOCK FOR 'update' tool (multiple tasks) vvv
+						else if (
+							(pendingData.originalToolName === 'update' || pendingData.delegatedCallDetails?.originalCommand === 'update-tasks') &&
+							agentLLMStatus !== 'llm_response_error' &&
+							finalLLMOutput
+						) {
+							const projectRootForSaving = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri;
+							const originalToolArguments = pendingData.originalToolArgs; // Contains 'from', 'prompt', etc.
+
+							if (projectRootForSaving && finalLLMOutput && originalToolArguments) {
+								log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Post-processing for '${pendingData.originalToolName}'. Saving multiple updated tasks from agent.`);
+
+								saveMultipleTasksFromAgent(finalLLMOutput, projectRootForSaving, log)
+									.then(saveResult => {
+										if (saveResult.success) {
+											log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Successfully saved ${saveResult.updatesApplied} tasks from agent for '${pendingData.originalToolName}'. IDs: ${saveResult.updatedTaskIds?.join(', ')}.`);
+										} else {
+											log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Failed to save multiple tasks from agent for '${pendingData.originalToolName}'. Error: ${saveResult.error}`);
+										}
+									})
+									.catch(saveError => {
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Exception during saving multiple tasks for '${pendingData.originalToolName}'. Error: ${saveError.message}`);
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Save error stack: ${saveError.stack}`);
+									});
+							} else {
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save multiple tasks for '${pendingData.originalToolName}' due to missing projectRoot, agentOutput, or originalToolArguments.`);
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, finalLLMOutput: ${!!finalLLMOutput}, originalArgs: ${!!originalToolArguments}`);
 							}
 						}
 						// ^^^ NEW ELSE IF BLOCK END ^^^
