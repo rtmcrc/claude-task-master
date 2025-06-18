@@ -399,7 +399,10 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 
 			// Refined handling for agent_llm_delegation and normal responses
 			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
-				// This is an agent_llm_delegation
+				// This is an agent_llm_delegation.
+				// AgentLLMProvider should have already thrown an error if in CLI mode (outputType === 'cli'),
+				// so we should only reach here if isMCP is true (meaning outputType was 'mcp').
+				// The isMCP check here is thus a safeguard or for contexts where outputType might not be the sole determinant.
 				if (isMCP) {
 					const delegationInfo = aiServiceResponse.mainResult;
 					const pendingInteraction = {
@@ -418,10 +421,11 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 						pendingInteraction: pendingInteraction,
 						success: true // Indicates overall success of this step, pending agent action
 					};
-				} else {
-					report('error', 'AgentLLM delegation is not supported in CLI mode for updateTasks.');
-					throw new Error('AgentLLM delegation is not supported in CLI mode for updateTasks.');
 				}
+				// If !isMCP and somehow an agent_llm_delegation is received (which should be prevented by AgentLLMProvider),
+				// it will now fall through to the main 'else' block. This is acceptable as the primary guard
+				// is now in AgentLLMProvider. The robust string check in the 'else' block below will likely catch it
+				// if mainResult is an object, leading to an error, which is fine.
 			} else {
 				// This is a normal response (or an error from generateTextService that needs to be handled by the outer catch)
 				if (isMCP) {
