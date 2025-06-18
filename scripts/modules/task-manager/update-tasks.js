@@ -380,7 +380,7 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 				return {
 					needsAgentDelegation: true,
 					pendingInteraction: {
-						type: "agent_llm_bulk_update", // Using a distinct type for multiple task updates
+						type: "agent_llm", // Changed from "agent_llm_bulk_update"
 						interactionId: aiServiceResponse.mainResult.interactionId,
 						delegatedCallDetails: {
 							originalCommand: context.commandName || "update-tasks",
