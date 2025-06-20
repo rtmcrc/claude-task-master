@@ -1,15 +1,15 @@
 # Agent LLM Delegation Workflow
 
-This document outlines the workflow for how Taskmaster delegates Large Language Model (LLM) calls to an external agent using the `agent_llm` MCP tool and how the agent should respond.
+This document outlines the workflow for how Taskmaster delegates Large Language Model (LLM) calls to an agent calling it using the `agent_llm` MCP tool and how the agent should respond.
 
 ## Overview
 
-When Taskmaster is configured to use an "AgentLLM" provider for a specific AI role (e.g., 'main', 'research'), instead of making a direct LLM call, it signals a delegation request. An external agent is expected to pick up this request, perform the LLM call, and then return the result to Taskmaster. The `agent_llm` MCP tool is the dedicated channel for this communication. An `interactionId` is used to correlate requests and responses.
+When Taskmaster is configured to use an "AgentLLM" provider for a specific AI role (e.g., 'main', 'research'), instead of making a direct LLM call, it signals a delegation request. An agent to which Taskmaster MCP is hooked to is expected to pick up this request, perform the LLM call, and then return the result to Taskmaster. The `agent_llm` MCP tool is the dedicated channel for this communication. An `interactionId` is used to correlate requests and responses.
 
 ## Workflow Steps
 
 1.  **Taskmaster Initiates a Delegated LLM Call:**
-    *   An internal Taskmaster operation (e.g., triggered by a command like `parse-prd` or `generate-tasks`) requires an LLM call (e.g., `generateText`, `streamText`, or `generateObject`).
+    *   An internal Taskmaster operation (e.g., triggered by a command like `parse_prd`, `analyze_project_complexity`, `expand_task`, `expand_all`, `update`, `update_task`, `update_subtask`, `add_task`) requires an LLM call (e.g., `generateText`, `streamText`, or `generateObject`).
     *   The `AgentLLMProvider` in Taskmaster is invoked. Instead of calling an LLM, it generates an `interactionId` and returns a special signal object.
     *   This signal propagates up to the `TaskMasterMCPServer`'s core logic.
     *   The core logic identifies this as a pending agent interaction. It pauses the original operation and prepares to call the `agent_llm` tool.
@@ -115,13 +115,4 @@ When Taskmaster is configured to use an "AgentLLM" provider for a specific AI ro
         ```
         This confirms to the agent that Taskmaster has received and processed its LLM response.
 
-## Key Considerations for the Agent
 
-*   **Authentication & Authorization:** The agent is responsible for its own LLM API keys and authentication. Taskmaster does not pass LLM API keys to the agent.
-*   **Model Mapping:** The agent should be capable of mapping the `modelId` provided by Taskmaster to an actual LLM it can access.
-*   **Error Handling:** If the agent's LLM call fails, it should report this failure clearly using the `agentLLMResponse.status = "error"` and provide details in `agentLLMResponse.errorDetails`.
-*   **`interactionId`:** This ID is crucial. It **must** be included when the agent calls `agent_llm` back.
-*   **`projectRoot`:** The agent needs to provide a valid `projectRoot` when calling `agent_llm` back to Taskmaster, as this is a standard parameter for many MCP tools.
-*   **Streaming:** If the original request was for `streamText`, the agent's handling of this needs careful consideration. The current `agent_llm` tool structure expects a complete response in `agentLLMResponse.data`. True streaming from the agent back through Taskmaster would require a more complex setup (e.g., multiple `agent_llm` calls or a different mechanism). For simplicity, an initial implementation might involve the agent collecting the full streamed response before calling `agent_llm`.
-
-This workflow enables Taskmaster to offload LLM calls to specialized external agents, providing flexibility in how and where LLM operations are executed.
