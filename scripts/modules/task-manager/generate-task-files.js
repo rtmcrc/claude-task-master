@@ -80,7 +80,8 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			rawData, // Pass the entire object with all tags
 			tasksPath,
 			options.projectRoot,
-			targetTag // Provide the current tag context for the operation
+			targetTag, // Provide the current tag context for the operation
+			options // Pass the options object for mcpLog compatibility
 		);
 
 		const allTasksInTag = tagData.tasks;
