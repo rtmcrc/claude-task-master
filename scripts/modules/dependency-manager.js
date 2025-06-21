@@ -1152,7 +1152,7 @@ function validateAndFixDependencies(
 
 	// Validate the overall tasksData (root object) and the specific tag
 	if (!tasksData || typeof tasksData !== 'object' || Object.keys(tasksData).length === 0) {
-		logger.error('Invalid root tasks data object provided to validateAndFixDependencies.');
+		logger.error('Invalid tasks data');
 		return false;
 	}
 
@@ -1160,7 +1160,7 @@ function validateAndFixDependencies(
 	const currentTagData = tasksData[targetTag];
 
 	if (!currentTagData || !currentTagData.tasks || !Array.isArray(currentTagData.tasks)) {
-		logger.error(`Invalid or missing tasks for tag '${targetTag}' in validateAndFixDependencies.`);
+		logger.error('Invalid tasks data');
 		return false;
 	}
 	
