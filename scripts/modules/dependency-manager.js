@@ -1133,14 +1133,29 @@ function validateAndFixDependencies(
 	tasksData,
 	tasksPath = null,
 	projectRoot = null,
-	tag = null
+	tag = null,
+	options = {}
 ) {
+	const logger = {
+		debug: (...args) => options.mcpLog ? options.mcpLog.debug(...args) : (() => {}),
+		error: (...args) => {
+			if (options.mcpLog) {
+				options.mcpLog.error(...args);
+			} else {
+				const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ');
+				throw new Error(message);
+			}
+		},
+		info: (...args) => options.mcpLog ? options.mcpLog.info(...args) : (() => {}),
+		success: (...args) => options.mcpLog ? options.mcpLog.success(...args) : (() => {}),
+	};
+
 	if (!tasksData || !tasksData.tasks || !Array.isArray(tasksData.tasks)) {
-		log('error', 'Invalid tasks data');
-		return false;
+		logger.error('Invalid tasks data'); // This will throw if no mcpLog
+		return false; // Technically unreachable if error is thrown, but good for clarity
 	}
 
-	log('debug', 'Validating and fixing dependencies...');
+	logger.debug('Validating and fixing dependencies...');
 
 	// Create a deep copy for comparison
 	const originalData = JSON.parse(JSON.stringify(tasksData));
@@ -1222,9 +1237,9 @@ function validateAndFixDependencies(
 	if (tasksPath && changesDetected) {
 		try {
 			writeJSON(tasksPath, tasksData, projectRoot, tag);
-			log('debug', 'Saved dependency fixes to tasks.json');
+			logger.debug('Saved dependency fixes to tasks.json');
 		} catch (error) {
-			log('error', 'Failed to save dependency fixes to tasks.json', error);
+			logger.error('Failed to save dependency fixes to tasks.json', error.message); // Use error.message
 		}
 	}
 

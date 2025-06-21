@@ -25,7 +25,10 @@ function dispatchLog(level, options, ...args) {
         }
     } else {
         // Fallback to original CLI logging if mcpLog is not provided
-        cliLog(level, ...args); // Spread original args here for cliLog's formatting
+        // cliLog(level, ...args); // Spread original args here for cliLog's formatting
+        // When mcpLog is not present, we assume taskmaster-ai is calling and expecting JSON.
+        // Text logs would break this. True CLI calls might need a different mechanism
+        // or a dedicated flag if text output is desired. For now, silence it.
     }
 }
 
@@ -66,8 +69,9 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			fs.mkdirSync(outputDir, { recursive: true });
 		}
 
-		log(
+		dispatchLog(
 			'info',
+			options,
 			`Preparing to regenerate ${tasksForGeneration.length} task files for tag '${targetTag}'`
 		);
 
@@ -76,7 +80,8 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			rawData, // Pass the entire object with all tags
 			tasksPath,
 			options.projectRoot,
-			targetTag // Provide the current tag context for the operation
+			targetTag, // Provide the current tag context for the operation
+			options // Pass the options object for mcpLog compatibility
 		);
 
 		const allTasksInTag = tagData.tasks;
@@ -123,14 +128,14 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 					fs.unlinkSync(filePath);
 				});
 			} else {
-				log('info', 'No orphaned task files found.');
+				dispatchLog('info', options, 'No orphaned task files found.');
 			}
 		} catch (err) {
-			log('warn', `Error cleaning up orphaned task files: ${err.message}`);
+			dispatchLog('warn', options, `Error cleaning up orphaned task files: ${err.message}`);
 		}
 
 		// Generate task files for the target tag
-		log('info', `Generating individual task files for tag '${targetTag}'...`);
+		dispatchLog('info', options, `Generating individual task files for tag '${targetTag}'...`);
 		tasksForGeneration.forEach((task) => {
 			// Tag-aware file naming: master -> task_001.txt, other tags -> task_001_tagname.txt
 			const taskFileName =
@@ -207,14 +212,19 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			};
 		}
 	} catch (error) {
-		log('error', `Error generating task files: ${error.message}`);
+		dispatchLog('error', options, `Error generating task files: ${error.message}`);
 		if (!options?.mcpLog) {
-			console.error(chalk.red(`Error generating task files: ${error.message}`));
-			if (getDebugFlag()) {
-				console.error(error);
-			}
-			process.exit(1);
+			// If not in MCP mode (i.e., mcpLog is not provided),
+			// taskmaster-ai might be the caller and expecting JSON errors.
+			// Avoid console.error and process.exit which produce text output.
+			// console.error(chalk.red(`Error generating task files: ${error.message}`));
+			// if (getDebugFlag()) {
+			//  console.error(error);
+			// }
+			// process.exit(1);
+			throw error; // Re-throw the error; taskmaster-ai should catch and format it.
 		} else {
+			// In MCP mode, mcpLog should have already logged, so just re-throw.
 			throw error;
 		}
 	}
