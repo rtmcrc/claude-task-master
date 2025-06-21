@@ -193,7 +193,7 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 
 			fs.writeFileSync(taskPath, content);
 		});
-
+		
 		dispatchLog(
 			'success',
 			`All ${tasksForGeneration.length} tasks for tag '${targetTag}' have been generated into '${outputDir}'.`
