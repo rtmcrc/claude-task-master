@@ -12,6 +12,7 @@ import { saveComplexityReportFromAgent } from './core/utils/complexity-report-sa
 import { saveUpdatedTaskFromAgent } from './core/utils/update-task-saver.js';
 import { saveNewTaskFromAgent } from './core/utils/add-task-saver.js';
 import { saveMultipleTasksFromAgent } from './core/utils/agent-bulk-task-saver.js';
+import { saveDetailsFromAgent } from './core/utils/update-subtask-saver.js';
 // import { v4 as uuidv4 } from 'uuid'; // Already in agent_llm.js and agent-llm.js, not directly needed here yet unless core generates IDs
 
 // Load environment variables
@@ -381,32 +382,33 @@ class TaskMasterMCPServer {
 						else if (
 							pendingData.originalToolName === 'update_subtask' &&
 							agentLLMStatus !== 'llm_response_error' &&
-							finalLLMOutput
+							finalLLMOutput // For this tool, finalLLMOutput is expected to be a string
 						) {
 							const projectRootForSaving = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri;
-							// 'id' is the parameter name for the subtaskId string (e.g., "1.2") in the update_subtask tool
 							const subtaskIdToUpdate = pendingData.originalToolArgs?.id;
-							const originalToolArguments = pendingData.originalToolArgs; // Contains prompt, research flag, etc.
+							const originalToolArguments = pendingData.originalToolArgs;
 
-							if (projectRootForSaving && subtaskIdToUpdate && finalLLMOutput && originalToolArguments) {
-								log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Post-processing for 'update_subtask'. Saving updated subtask data from agent for ID ${subtaskIdToUpdate}.`);
+							// Ensure finalLLMOutput is a string, as expected by appendDetailsToSubtaskFromAgent
+							if (projectRootForSaving && subtaskIdToUpdate && typeof finalLLMOutput === 'string' && originalToolArguments) {
+								log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Post-processing for 'update_subtask'. Appending details from agent to subtask ID ${subtaskIdToUpdate}.`);
 
-								// saveUpdatedTaskFromAgent already handles subtask IDs like "parentId.subtaskId"
-								saveUpdatedTaskFromAgent(finalLLMOutput, subtaskIdToUpdate, projectRootForSaving, log, originalToolArguments)
+								saveDetailsFromAgent(finalLLMOutput, subtaskIdToUpdate, projectRootForSaving, log, originalToolArguments)
 									.then(saveResult => {
 										if (saveResult.success) {
-											log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Successfully saved updated subtask for 'update_subtask' (ID: ${subtaskIdToUpdate}). Actual update occurred: ${saveResult.wasActuallyUpdated}`);
+											log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Successfully appended details to subtask for 'update_subtask' (ID: ${subtaskIdToUpdate}). Message: ${saveResult.message || 'Details appended.'}`);
 										} else {
-											log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Failed to save updated subtask for 'update_subtask' (ID: ${subtaskIdToUpdate}). Error: ${saveResult.error}`);
+											log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Failed to append details to subtask for 'update_subtask' (ID: ${subtaskIdToUpdate}). Error: ${saveResult.error}`);
 										}
 									})
 									.catch(saveError => {
-										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Exception during saving updated subtask for 'update_subtask' (ID: ${subtaskIdToUpdate}). Error: ${saveError.message}`);
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Exception during appending details for 'update_subtask' (ID: ${subtaskIdToUpdate}). Error: ${saveError.message}`);
 										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Save error stack: ${saveError.stack}`);
 									});
 							} else {
-								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save updated subtask for 'update_subtask' due to missing projectRoot, subtaskId, agentOutput, or originalToolArguments.`);
-								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, subtaskId: ${subtaskIdToUpdate}, finalLLMOutput: ${!!finalLLMOutput}, originalArgs: ${!!originalToolArguments}`);
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot append details for 'update_subtask' (ID: ${subtaskIdToUpdate}). Missing data or incorrect agent output type. Expected string, got ${typeof finalLLMOutput}.`);
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, subtaskId: ${subtaskIdToUpdate}, finalLLMOutput isString: ${typeof finalLLMOutput === 'string'}, originalArgs: ${!!originalToolArguments}`);
+								// If finalLLMOutput wasn't a string, we might want to reject the original promise or handle it more specifically.
+								// For now, logging a detailed warning. The original operation's promise would have resolved with non-string finalLLMOutput.
 							}
 						}
 						// ^^^ END 'update_subtask' BLOCK ^^^
