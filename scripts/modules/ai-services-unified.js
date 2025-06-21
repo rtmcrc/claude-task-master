@@ -459,8 +459,21 @@ async function _unifiedServiceRunner(serviceType, params) {
 				continue;
 			}
 
+			if (providerName?.toLowerCase() === 'agentllm' && outputType === 'cli') {
+					log(
+						'warn',
+						`Skipping role '${currentRole}' (Provider: ${providerName}): Has to be used only for MCP.`
+					);
+					lastError =
+						lastError ||
+						new Error(
+							`API key for provider '${providerName}' (role: ${currentRole}) is not set.`
+						);
+					continue; // Skip to the next role in the sequence
+			}
+
 			// Check API key if needed
-			if (providerName?.toLowerCase() !== 'ollama' && providerName?.toLowerCase() !== 'agentllm') {
+			if (providerName?.toLowerCase() !== 'ollama') {
 				if (!isApiKeySet(providerName, session, effectiveProjectRoot)) {
 					log(
 						'warn',

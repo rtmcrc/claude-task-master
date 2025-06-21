@@ -745,10 +745,10 @@ describe('Dependency Manager Module', () => {
 		});
 
 		test('should handle invalid input', () => {
-			expect(validateAndFixDependencies(null)).toBe(false);
-			expect(validateAndFixDependencies({})).toBe(false);
-			expect(validateAndFixDependencies({ tasks: null })).toBe(false);
-			expect(validateAndFixDependencies({ tasks: 'not an array' })).toBe(false);
+			expect(() => validateAndFixDependencies(null)).toThrowError('Invalid tasks data');
+			expect(() => validateAndFixDependencies({})).toThrowError('Invalid tasks data');
+			expect(() => validateAndFixDependencies({ tasks: null })).toThrowError('Invalid tasks data');
+			expect(() => validateAndFixDependencies({ tasks: 'not an array' })).toThrowError('Invalid tasks data');
 
 			// IMPORTANT: Verify no calls to writeJSON with actual tasks.json
 			expect(mockWriteJSON).not.toHaveBeenCalledWith(
