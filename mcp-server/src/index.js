@@ -377,6 +377,39 @@ class TaskMasterMCPServer {
 								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, finalLLMOutput: ${!!finalLLMOutput}, originalArgs: ${!!originalToolArguments}, delegatedParams: ${!!delegatedRequestParams}`);
 							}
 						}
+						// vvv ADD/VERIFY THIS ELSE IF BLOCK for 'update_subtask' vvv
+						else if (
+							pendingData.originalToolName === 'update_subtask' &&
+							agentLLMStatus !== 'llm_response_error' &&
+							finalLLMOutput
+						) {
+							const projectRootForSaving = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri;
+							// 'id' is the parameter name for the subtaskId string (e.g., "1.2") in the update_subtask tool
+							const subtaskIdToUpdate = pendingData.originalToolArgs?.id;
+							const originalToolArguments = pendingData.originalToolArgs; // Contains prompt, research flag, etc.
+
+							if (projectRootForSaving && subtaskIdToUpdate && finalLLMOutput && originalToolArguments) {
+								log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Post-processing for 'update_subtask'. Saving updated subtask data from agent for ID ${subtaskIdToUpdate}.`);
+
+								// saveUpdatedTaskFromAgent already handles subtask IDs like "parentId.subtaskId"
+								saveUpdatedTaskFromAgent(finalLLMOutput, subtaskIdToUpdate, projectRootForSaving, log, originalToolArguments)
+									.then(saveResult => {
+										if (saveResult.success) {
+											log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Successfully saved updated subtask for 'update_subtask' (ID: ${subtaskIdToUpdate}). Actual update occurred: ${saveResult.wasActuallyUpdated}`);
+										} else {
+											log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Failed to save updated subtask for 'update_subtask' (ID: ${subtaskIdToUpdate}). Error: ${saveResult.error}`);
+										}
+									})
+									.catch(saveError => {
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Exception during saving updated subtask for 'update_subtask' (ID: ${subtaskIdToUpdate}). Error: ${saveError.message}`);
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Save error stack: ${saveError.stack}`);
+									});
+							} else {
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot save updated subtask for 'update_subtask' due to missing projectRoot, subtaskId, agentOutput, or originalToolArguments.`);
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForSaving}, subtaskId: ${subtaskIdToUpdate}, finalLLMOutput: ${!!finalLLMOutput}, originalArgs: ${!!originalToolArguments}`);
+							}
+						}
+						// ^^^ END 'update_subtask' BLOCK ^^^
 						// vvv NEW ELSE IF BLOCK FOR 'update' tool (multiple tasks) vvv
 						else if (
 							(pendingData.originalToolName === 'update' || pendingData.delegatedCallDetails?.originalCommand === 'update-tasks') &&
