@@ -66,8 +66,9 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			fs.mkdirSync(outputDir, { recursive: true });
 		}
 
-		log(
+		dispatchLog(
 			'info',
+			options,
 			`Preparing to regenerate ${tasksForGeneration.length} task files for tag '${targetTag}'`
 		);
 
@@ -123,14 +124,14 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 					fs.unlinkSync(filePath);
 				});
 			} else {
-				log('info', 'No orphaned task files found.');
+				dispatchLog('info', options, 'No orphaned task files found.');
 			}
 		} catch (err) {
-			log('warn', `Error cleaning up orphaned task files: ${err.message}`);
+			dispatchLog('warn', options, `Error cleaning up orphaned task files: ${err.message}`);
 		}
 
 		// Generate task files for the target tag
-		log('info', `Generating individual task files for tag '${targetTag}'...`);
+		dispatchLog('info', options, `Generating individual task files for tag '${targetTag}'...`);
 		tasksForGeneration.forEach((task) => {
 			// Tag-aware file naming: master -> task_001.txt, other tags -> task_001_tagname.txt
 			const taskFileName =
@@ -207,7 +208,7 @@ function generateTaskFiles(tasksPath, outputDir, options = {}) {
 			};
 		}
 	} catch (error) {
-		log('error', `Error generating task files: ${error.message}`);
+		dispatchLog('error', options, `Error generating task files: ${error.message}`);
 		if (!options?.mcpLog) {
 			console.error(chalk.red(`Error generating task files: ${error.message}`));
 			if (getDebugFlag()) {
