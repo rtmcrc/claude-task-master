@@ -154,13 +154,28 @@ const researchSuccessData = {
     contextSize: 1000,
 };
 const successResponseFromDirect = { success: true, data: researchSuccessData };
-const delegationDetails = {
-    interactionId: 'test-interaction-id',
-    llmRequest: { model: 'test-model', prompt: 'delegated_prompt' }
+
+// This now represents the transformed pendingInteraction structure that researchDirect would return
+const newPendingInteractionStructure = {
+    type: 'agent_llm', // Corrected type
+    interactionId: 'mcp-tool-test-interaction-id',
+    delegatedCallDetails: {
+        originalCommand: 'research',
+        role: 'research',
+        serviceType: 'generateText',
+        requestParameters: {
+            modelId: 'test-model-for-agent-mcp',
+            messages: [{role: 'system', content: 'sys'}, {role: 'user', content: 'usr'}],
+            // Include original params if agent needs them directly
+            originalSaveTo: 'task1_mcp',
+            originalSaveToFile: true,
+            originalDetailLevel: 'high'
+        }
+    }
 };
-const delegationSignalFromDirect = {
+const delegationSignalFromDirect = { // This is what mockResearchDirectFn will return
     needsAgentDelegation: true,
-    pendingInteraction: delegationDetails
+    pendingInteraction: newPendingInteractionStructure
 };
 
 
@@ -245,7 +260,7 @@ describe('MCP Tool: research (Simplified Pattern)', () => {
                     mimeType: "application/json",
                     text: JSON.stringify({
                         isAgentLLMPendingInteraction: true,
-                        details: delegationDetails
+                        details: newPendingInteractionStructure // Assert the new structure here
                     })
                 }
             }],

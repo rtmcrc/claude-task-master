@@ -187,17 +187,27 @@ describe('FAKE researchDirect', () => {
     });
 
     test('should propagate needsAgentDelegation signal from performResearch', async () => {
-        const delegationSignal = {
+        const newPendingInteractionStructure = {
+            type: 'agent_llm', // Corrected type
+            interactionId: 'test-id-from-performresearch',
+            delegatedCallDetails: {
+                originalCommand: 'research',
+                role: 'research',
+                serviceType: 'generateText',
+                requestParameters: { modelId: 'model-for-agent', messages: [] } // Example details
+            }
+        };
+        const delegationSignalFromPerformResearch = {
             needsAgentDelegation: true,
-            pendingInteraction: { type: 'agent_llm_delegation', interactionId: 'test-id', details: {} },
+            pendingInteraction: newPendingInteractionStructure,
             query: 'Test Query',
             result: null,
         };
-        mockPerformResearch.mockResolvedValue(delegationSignal);
+        mockPerformResearch.mockResolvedValue(delegationSignalFromPerformResearch);
 
         const response = await fakeResearchDirect(baseArgs, mockLoggerForDirectFn, baseContext);
 
-        expect(response).toEqual(delegationSignal);
+        expect(response).toEqual(delegationSignalFromPerformResearch); // researchDirect should pass it through
         expect(mockLoggerForDirectFn.info).toHaveBeenCalledWith("FAKE researchDirect: Propagating agent_llm_delegation signal.");
         expect(mockDisableSilentMode).toHaveBeenCalled();
     });

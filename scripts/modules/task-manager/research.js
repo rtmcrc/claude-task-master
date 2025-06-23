@@ -259,10 +259,22 @@ async function performResearch(
 		if (aiResult && aiResult.mainResult && aiResult.mainResult.type === 'agent_llm_delegation') {
 			logFn.info(`AgentLLM delegation signal received from AI service for research. Propagating.`);
 			// aiResult.mainResult is the { type: 'agent_llm_delegation', interactionId, details } object
-			// Construct the full signal expected by researchDirect and then the MCP tool
+			// Construct the full signal expected by researchDirect and then the MCP tool,
+			// matching the structure observed for update_task.
+			const pendingInteractionObject = {
+				type: 'agent_llm', // Standardized type for server processing
+				interactionId: aiResult.mainResult.interactionId,
+				delegatedCallDetails: {
+					originalCommand: researchContext.commandName || 'research', // Use commandName from researchContext
+					role: 'research', // The role that was delegated
+					serviceType: 'generateText', // Agent is expected to generate text
+					requestParameters: aiResult.mainResult.details // Contains modelId, messages, originalSaveTo etc.
+				}
+			};
+			logFn.debug(`Transformed pendingInteraction for research: ${JSON.stringify(pendingInteractionObject)}`);
 			return {
 				needsAgentDelegation: true,
-				pendingInteraction: aiResult.mainResult, // This is the object from AgentLLMProvider
+				pendingInteraction: pendingInteractionObject,
 				// Provide structure consistent with normal returns, but with null/default data
 				query,
 				result: null, // No direct result if delegating

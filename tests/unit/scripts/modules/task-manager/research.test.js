@@ -122,15 +122,27 @@ describe('performResearch - Focused Delegation Test', () => {
         const result = await performResearch(baseQuery, optionsWithSave, baseContext);
 
         expect(mockGenerateTextService).toHaveBeenCalledWith(expect.objectContaining({
+            role: 'research', // ensure this is also checked
+            prompt: expect.any(String),
+            systemPrompt: expect.any(String),
             originalSaveTo: 'task1',
             originalSaveToFile: true,
             originalDetailLevel: 'high'
         }));
         expect(result.needsAgentDelegation).toBe(true);
-        expect(result.pendingInteraction).toEqual(agentDelegationSignalFromService);
+        // Now check the transformed structure
+        expect(result.pendingInteraction.type).toBe('agent_llm');
+        expect(result.pendingInteraction.interactionId).toBe(agentDelegationSignalFromService.interactionId);
+        expect(result.pendingInteraction.delegatedCallDetails).toEqual({
+            originalCommand: baseContext.commandName || 'research', // researchContext.commandName is used in actual code
+            role: 'research',
+            serviceType: 'generateText',
+            requestParameters: agentDelegationSignalFromService.details
+        });
         expect(result.result).toBeNull();
         expect(result.query).toBe(baseQuery);
         expect(result.telemetryData).toBeNull();
         expect(mockLogFn.info).toHaveBeenCalledWith('AgentLLM delegation signal received from AI service for research. Propagating.');
+        expect(mockLogFn.debug).toHaveBeenCalledWith(expect.stringContaining('Transformed pendingInteraction for research:'));
     });
 });
