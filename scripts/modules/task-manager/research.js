@@ -265,7 +265,7 @@ async function performResearch(
 				type: 'agent_llm', // Standardized type for server processing
 				interactionId: aiResult.mainResult.interactionId,
 				delegatedCallDetails: {
-					originalCommand: researchContext.commandName || 'research', // Use commandName from researchContext
+					originalCommand: commandName, // Use the destructured commandName from the context parameter
 					role: 'research', // The role that was delegated
 					serviceType: 'generateText', // Agent is expected to generate text
 					requestParameters: aiResult.mainResult.details // Contains modelId, messages, originalSaveTo etc.
