@@ -237,7 +237,11 @@ async function performResearch(
 				systemPrompt,
 				prompt: userPrompt,
 				commandName,
-				outputType
+				outputType,
+				// Pass original options that might be needed by the agent
+				originalSaveTo: options.saveTo,
+				originalSaveToFile: options.saveToFile,
+				originalDetailLevel: options.detailLevel
 			});
 		} catch (error) {
 			if (loadingIndicator) {
@@ -250,7 +254,32 @@ async function performResearch(
 			}
 		}
 
-		const researchResult = aiResult.mainResult;
+		// === BEGIN AGENT_LLM DELEGATION SIGNAL CHECK ===
+		// Check if generateTextService (via _unifiedServiceRunner) returned a delegation signal
+		if (aiResult && aiResult.mainResult && aiResult.mainResult.type === 'agent_llm_delegation') {
+			logFn.info(`AgentLLM delegation signal received from AI service for research. Propagating.`);
+			// aiResult.mainResult is the { type: 'agent_llm_delegation', interactionId, details } object
+			// Construct the full signal expected by researchDirect and then the MCP tool
+			return {
+				needsAgentDelegation: true,
+				pendingInteraction: aiResult.mainResult, // This is the object from AgentLLMProvider
+				// Provide structure consistent with normal returns, but with null/default data
+				query,
+				result: null, // No direct result if delegating
+				contextSize: gatheredContext.length,
+				contextTokens: tokenBreakdown.total,
+				tokenBreakdown,
+				systemPromptTokens,
+				userPromptTokens,
+				totalInputTokens,
+				detailLevel,
+				telemetryData: null, // No direct AI call was finalized here
+				tagInfo: aiResult.tagInfo, // tagInfo can still be relevant
+			};
+		}
+		// === END AGENT_LLM DELEGATION SIGNAL CHECK ===
+
+		const researchResult = aiResult.mainResult; // This is now actual text if not delegated
 		const telemetryData = aiResult.telemetryData;
 		const tagInfo = aiResult.tagInfo;
 
