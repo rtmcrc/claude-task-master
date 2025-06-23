@@ -32,15 +32,45 @@ async function saveUpdatedTaskFromAgent(agentOutput, taskIdToUpdate, projectRoot
             return { success: false, error: errorMsg };
         }
 
-        let parsedAgentTask;
-        if (typeof agentOutput === 'string') {
-            logWrapper.info("saveUpdatedTaskFromAgent: Agent output is a string, attempting to parse with parseUpdatedTaskFromText.");
-            // Ensure taskIdToUpdate is a number if it's not a subtask string ID for parseUpdatedTaskFromText
-            const idForParser = (typeof taskIdToUpdate === 'string' && taskIdToUpdate.includes('.'))
-                                ? taskIdToUpdate // Keep as string like "1.2"
-                                : parseInt(String(taskIdToUpdate), 10);
+        let parsedAgentTask; // This will hold the object to merge (if full update) or be null (if append)
+        let taskToUpdateObject; // This will hold the reference to the task/subtask in allTasksData.tasks
+        let directAppendText = null; // Holds text for direct append if applicable
 
-            parsedAgentTask = parseUpdatedTaskFromText(agentOutput, idForParser, logWrapper, true /* isMCP */);
+        // Find the task/subtask first to get its current details for append mode
+        if (typeof taskIdToUpdate === 'string' && taskIdToUpdate.includes('.')) {
+            const [parentIdStr, subIdStr] = taskIdToUpdate.split('.');
+            const parentId = parseInt(parentIdStr, 10);
+            const subId = parseInt(subIdStr, 10);
+            const parentTask = allTasksData.tasks.find(t => t.id === parentId);
+            if (!parentTask || !parentTask.subtasks) throw new Error(`Parent task or subtasks for ${taskIdToUpdate} not found.`);
+            taskToUpdateObject = parentTask.subtasks.find(st => st.id === subId);
+        } else {
+            taskToUpdateObject = allTasksData.tasks.find(t => t.id === parseInt(String(taskIdToUpdate), 10));
+        }
+
+        if (!taskToUpdateObject) {
+            const errorMsg = `Task/subtask ID ${taskIdToUpdate} not found for update.`;
+            logWrapper.error(`saveUpdatedTaskFromAgent: ${errorMsg}`);
+            return { success: false, error: errorMsg };
+        }
+
+        // Check if originalToolArgs indicates append mode (e.g., originalToolArgs.append === true)
+        // This assumes 'append' is passed in originalToolArgs if that was the intent.
+        const isAppendMode = originalToolArgs && originalToolArgs.append === true;
+
+        if (typeof agentOutput === 'string') {
+            if (isAppendMode) {
+                logWrapper.info("saveUpdatedTaskFromAgent: Agent output is a string and appendMode is true. Formatting for append.");
+                const timestamp = new Date().toISOString();
+                directAppendText = `<info added on ${timestamp}>\n${agentOutput.trim()}\n</info added on ${timestamp}>`;
+                // parsedAgentTask remains undefined, as we'll modify taskToUpdateObject directly
+            } else {
+                logWrapper.info("saveUpdatedTaskFromAgent: Agent output is a string and not appendMode. Attempting to parse with parseUpdatedTaskFromText.");
+                const idForParser = (typeof taskIdToUpdate === 'string' && taskIdToUpdate.includes('.'))
+                                    ? taskIdToUpdate
+                                    : parseInt(String(taskIdToUpdate), 10);
+                parsedAgentTask = parseUpdatedTaskFromText(agentOutput, idForParser, logWrapper, true /* isMCP */);
+            }
         } else if (typeof agentOutput === 'object' && agentOutput !== null) {
             logWrapper.info("saveUpdatedTaskFromAgent: Agent output is already an object. Validating and using directly.");
             // If agent returns an object, we might still want to run it through a Zod schema or similar validation.
@@ -62,90 +92,75 @@ async function saveUpdatedTaskFromAgent(agentOutput, taskIdToUpdate, projectRoot
             return { success: false, error: errorMsg };
         }
 
+        // If directAppendText is set, it means we are in append mode with a string from agent
+        if (directAppendText) {
+            if (taskToUpdateObject.status === 'done' || taskToUpdateObject.status === 'completed') {
+                logWrapper.warn(`saveUpdatedTaskFromAgent: Task/subtask ${taskIdToUpdate} is completed. Cannot append text.`);
+                return { success: true, updatedTask: taskToUpdateObject, wasActuallyUpdated: false };
+            }
+            taskToUpdateObject.details = (taskToUpdateObject.details ? taskToUpdateObject.details + '\n\n' : '') + directAppendText;
+            logWrapper.info(`saveUpdatedTaskFromAgent: Appended text to task/subtask ${taskIdToUpdate}.`);
+
+            writeJSON(tasksJsonPath, allTasksData); // Save the entire tasks structure
+            const outputDir = path.dirname(tasksJsonPath);
+            await generateTaskFiles(tasksJsonPath, outputDir, { mcpLog: logWrapper });
+            logWrapper.info(`saveUpdatedTaskFromAgent: Markdown task files regenerated after append.`);
+            return { success: true, updatedTask: taskToUpdateObject, wasActuallyUpdated: true };
+        }
+
+        // If not direct append, then parsedAgentTask should be an object (either from parsing or direct object input)
         if (!parsedAgentTask || typeof parsedAgentTask !== 'object') {
-            const errorMsg = `Task data from agent is invalid after parsing/processing: ${JSON.stringify(parsedAgentTask)}`;
+            // This case implies that it was not append mode, but parsing failed or agentOutput was not a valid object.
+            const errorMsg = `Task data from agent is invalid for full update after parsing/processing: ${JSON.stringify(parsedAgentTask)}`;
             logWrapper.error(`saveUpdatedTaskFromAgent: ${errorMsg}`);
             return { success: false, error: errorMsg };
         }
 
-        // Logic to find and update the task (main task or subtask)
+        // Logic to find and update the task (main task or subtask) using parsedAgentTask for a full update
         let taskUpdated = false;
-        let finalUpdatedTaskForReturn = null;
+        let finalUpdatedTaskForReturn = null; // This will be taskToUpdateObject after modifications
 
-        if (typeof taskIdToUpdate === 'string' && taskIdToUpdate.includes('.')) {
-            // Handling subtask update
-            const [parentIdStr, subIdStr] = taskIdToUpdate.split('.');
-            const parentId = parseInt(parentIdStr, 10);
-            const subId = parseInt(subIdStr, 10);
-
-            const parentTaskIndex = allTasksData.tasks.findIndex(t => t.id === parentId);
-            if (parentTaskIndex === -1) {
-                throw new Error(`Parent task ${parentId} for subtask ${taskIdToUpdate} not found.`);
-            }
-            if (!allTasksData.tasks[parentTaskIndex].subtasks) {
-                 throw new Error(`Parent task ${parentId} has no subtasks array for subtask ${taskIdToUpdate}.`);
-            }
-            const subtaskIndex = allTasksData.tasks[parentTaskIndex].subtasks.findIndex(st => st.id === subId);
-            if (subtaskIndex === -1) {
-                throw new Error(`Subtask ${taskIdToUpdate} not found.`);
-            }
-
-            const originalSubtask = allTasksData.tasks[parentTaskIndex].subtasks[subtaskIndex];
-            if (originalSubtask.status === 'done' || originalSubtask.status === 'completed') {
-                 logWrapper.warn(`saveUpdatedTaskFromAgent: Subtask ${taskIdToUpdate} is completed and was not updated by agent.`);
-                 finalUpdatedTaskForReturn = originalSubtask; // Return original
-                 // No actual update, but not an error from saver's perspective if agent respected this.
-            } else {
-                // Apply updates, preserving completed sub-subtasks (if subtasks could have sub-subtasks - current model doesn't)
-                // For subtasks, direct replacement is usually fine unless they have their own "completed children" concept.
-                // The prompt for update_task already tells AI to preserve completed subtasks.
-                // Here, parsedAgentTask is the subtask.
-                allTasksData.tasks[parentTaskIndex].subtasks[subtaskIndex] = { ...originalSubtask, ...parsedAgentTask, id: subId }; // Ensure ID is correct
-                finalUpdatedTaskForReturn = allTasksData.tasks[parentTaskIndex].subtasks[subtaskIndex];
-                taskUpdated = true;
-            }
+        if (taskToUpdateObject.status === 'done' || taskToUpdateObject.status === 'completed') {
+            logWrapper.warn(`saveUpdatedTaskFromAgent: Task/subtask ${taskIdToUpdate} is completed and was not updated by agent during full update attempt.`);
+            finalUpdatedTaskForReturn = taskToUpdateObject;
         } else {
-            // Handling main task update
-            const taskIdNum = parseInt(String(taskIdToUpdate), 10);
-            const taskIndex = allTasksData.tasks.findIndex(t => t.id === taskIdNum);
-            if (taskIndex === -1) {
-                throw new Error(`Task with ID ${taskIdNum} not found.`);
-            }
+            // Apply full update logic
+            if (typeof taskIdToUpdate === 'string' && taskIdToUpdate.includes('.')) {
+                // Handling subtask update (taskToUpdateObject is the subtask)
+                const [parentIdStr, subIdStr] = taskIdToUpdate.split('.');
+                const parentId = parseInt(parentIdStr, 10);
+                const subId = parseInt(subIdStr, 10);
+                const parentTaskIndex = allTasksData.tasks.findIndex(t => t.id === parentId);
+                // No need to find subtaskIndex again, taskToUpdateObject is the subtask reference
 
-            const originalTask = allTasksData.tasks[taskIndex];
-            if (originalTask.status === 'done' || originalTask.status === 'completed') {
-                logWrapper.warn(`saveUpdatedTaskFromAgent: Task ${taskIdNum} is completed and was not updated by agent.`);
-                finalUpdatedTaskForReturn = originalTask; // Return original
+                Object.assign(taskToUpdateObject, { ...parsedAgentTask, id: subId }); // Merge and ensure ID
+                finalUpdatedTaskForReturn = taskToUpdateObject;
+                taskUpdated = true;
             } else {
-                // Preserve completed subtasks from originalTask if agent's task doesn't have them or mishandles them
+                // Handling main task update (taskToUpdateObject is the main task)
+                const taskIdNum = parseInt(String(taskIdToUpdate), 10);
+                 // Preserve completed subtasks from originalTask if agent's task doesn't have them or mishandles them
                 let finalSubtasks = parsedAgentTask.subtasks || [];
-                if (originalTask.subtasks && originalTask.subtasks.length > 0) {
-                    const completedOriginalSubtasks = originalTask.subtasks.filter(
+                if (taskToUpdateObject.subtasks && taskToUpdateObject.subtasks.length > 0) {
+                    const completedOriginalSubtasks = taskToUpdateObject.subtasks.filter(
                         st => st.status === 'done' || st.status === 'completed'
                     );
                     completedOriginalSubtasks.forEach(compSub => {
                         const updatedVersion = finalSubtasks.find(st => st.id === compSub.id);
                         if (!updatedVersion || JSON.stringify(updatedVersion) !== JSON.stringify(compSub)) {
-                            logWrapper.warn(`saveUpdatedTaskFromAgent: Restoring completed subtask ${originalTask.id}.${compSub.id} as agent modified/removed it.`);
-                            finalSubtasks = finalSubtasks.filter(st => st.id !== compSub.id); // Remove agent's version
-                            finalSubtasks.push(compSub); // Add original completed one
+                            logWrapper.warn(`saveUpdatedTaskFromAgent: Restoring completed subtask ${taskToUpdateObject.id}.${compSub.id} as agent modified/removed it.`);
+                            finalSubtasks = finalSubtasks.filter(st => st.id !== compSub.id);
+                            finalSubtasks.push(compSub);
                         }
                     });
-                    // Deduplicate just in case & sort
                     const subtaskIds = new Set();
                     finalSubtasks = finalSubtasks.filter(st => {
                         if (!subtaskIds.has(st.id)) { subtaskIds.add(st.id); return true; }
                         return false;
                     }).sort((a,b) => a.id - b.id);
                 }
-
-                allTasksData.tasks[taskIndex] = {
-                    ...originalTask,
-                    ...parsedAgentTask,
-                    id: taskIdNum, // Ensure ID
-                    subtasks: finalSubtasks // Use merged subtasks
-                };
-                finalUpdatedTaskForReturn = allTasksData.tasks[taskIndex];
+                Object.assign(taskToUpdateObject, { ...parsedAgentTask, id: taskIdNum, subtasks: finalSubtasks });
+                finalUpdatedTaskForReturn = taskToUpdateObject;
                 taskUpdated = true;
             }
         }
