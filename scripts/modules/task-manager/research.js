@@ -254,10 +254,24 @@ async function performResearch(
 			}
 		}
 
+		logFn.info(`performResearch: generateTextService call completed.`);
+		logFn.debug(`performResearch: aiResult raw: ${JSON.stringify(aiResult)}`);
+		if (aiResult && aiResult.mainResult) {
+			logFn.info(`performResearch: aiResult.mainResult type: ${typeof aiResult.mainResult}`);
+			if (typeof aiResult.mainResult === 'object' && aiResult.mainResult !== null) {
+				logFn.info(`performResearch: aiResult.mainResult.type property: ${aiResult.mainResult.type}`);
+			} else if (typeof aiResult.mainResult === 'string') {
+				logFn.info(`performResearch: aiResult.mainResult (string start): ${aiResult.mainResult.substring(0, 200)}...`);
+			}
+		} else {
+			logFn.warn(`performResearch: aiResult or aiResult.mainResult is null/undefined.`);
+		}
+
+
 		// === BEGIN AGENT_LLM DELEGATION SIGNAL CHECK ===
 		// Check if generateTextService (via _unifiedServiceRunner) returned a delegation signal
 		if (aiResult && aiResult.mainResult && aiResult.mainResult.type === 'agent_llm_delegation') {
-			logFn.info(`AgentLLM delegation signal received from AI service for research. Propagating.`);
+			logFn.info(`AgentLLM delegation signal received from AI service for research. Propagating initial signal.`);
 			// aiResult.mainResult is the { type: 'agent_llm_delegation', interactionId, details } object
 			// Construct the full signal expected by researchDirect and then the MCP tool,
 			// matching the structure observed for update_task.
@@ -291,29 +305,40 @@ async function performResearch(
 		}
 		// === END AGENT_LLM DELEGATION SIGNAL CHECK ===
 
-		const researchResult = aiResult.mainResult; // This is now actual text if not delegated
-		const telemetryData = aiResult.telemetryData;
-		const tagInfo = aiResult.tagInfo;
+		const researchResult = aiResult.mainResult; // This should be the agent's text on resumption or direct LLM text
+		const telemetryData = aiResult.telemetryData; // Should be null if agent_llm, populated otherwise
+		const tagInfo = aiResult.tagInfo; // Should always be populated
 
-		// Format and display results
+		logFn.info(`performResearch: researchResult (from agent or direct LLM): ${typeof researchResult === 'string' ? researchResult.substring(0, 100) + '...' : JSON.stringify(researchResult)}`);
+		logFn.debug(`performResearch: telemetryData: ${JSON.stringify(telemetryData)}`);
+		logFn.debug(`performResearch: tagInfo: ${JSON.stringify(tagInfo)}`);
+		logFn.debug(`performResearch: saveTo parameter: ${saveTo}`);
+		logFn.debug(`performResearch: researchResult is null? ${researchResult == null}`);
+
+
+		// Format and display results (only for CLI direct calls, not for MCP or when just saving)
 		// Initialize interactive save tracking
 		let interactiveSaveInfo = { interactiveSaveOccurred: false };
 
-		if (outputFormat === 'text') {
-			displayResearchResults(
-				researchResult,
-				query,
-				detailLevel,
-				tokenBreakdown
-			);
+		if (outputFormat === 'text') { // Typically CLI mode
+			if (researchResult != null) { // Only display if there's a result
+				displayResearchResults(
+					researchResult,
+					query,
+					detailLevel,
+					tokenBreakdown
+				);
+			} else {
+				logFn.warn("performResearch: researchResult is null, skipping displayResearchResults.");
+			}
 
 			// Display AI usage telemetry for CLI users
-			if (telemetryData) {
+			if (telemetryData) { // Only if telemetryData exists (i.e., not agent_llm)
 				displayAiUsageSummary(telemetryData, 'cli');
 			}
 
 			// Offer follow-up question option (only for initial CLI queries, not MCP)
-			if (allowFollowUp && !isMCP) {
+			if (allowFollowUp && !isMCP && researchResult != null) {
 				interactiveSaveInfo = await handleFollowUpQuestions(
 					options,
 					context,
@@ -326,49 +351,116 @@ async function performResearch(
 			}
 		}
 
-		// Handle MCP save-to-file request
-		if (saveToFile && isMCP) {
+		// Handle MCP save-to-file request (also applicable if saveToFile was true from original call)
+		// This should use researchResult which is agent's text on resumption
+		let finalSavedFilePath = null;
+		if (options.saveToFile && researchResult != null) { // Use options.saveToFile from original request
+			logFn.info(`performResearch: Entering saveToFile block. saveToFile: ${options.saveToFile}, researchResult is not null.`);
 			const conversationHistory = [
 				{
 					question: query,
-					answer: researchResult,
+					answer: researchResult, // agent's text or direct LLM text
 					type: 'initial',
 					timestamp: new Date().toISOString()
 				}
 			];
-
-			const savedFilePath = await handleSaveToFile(
-				conversationHistory,
-				projectRoot,
-				context,
-				logFn
-			);
-
-			// Add saved file path to return data
-			return {
-				query,
-				result: researchResult,
-				contextSize: gatheredContext.length,
-				contextTokens: tokenBreakdown.total,
-				tokenBreakdown,
-				systemPromptTokens,
-				userPromptTokens,
-				totalInputTokens,
-				detailLevel,
-				telemetryData,
-				tagInfo,
-				savedFilePath,
-				interactiveSaveOccurred: false // MCP save-to-file doesn't count as interactive save
-			};
+			try {
+				finalSavedFilePath = await handleSaveToFile( // ensure this is awaited
+					conversationHistory,
+					projectRoot,
+					context, // Pass the full context object
+					logFn
+				);
+				logFn.info(`performResearch: Saved to file: ${finalSavedFilePath}`);
+			} catch (fileSaveError) {
+				logFn.error(`performResearch: Error during saveToFile: ${fileSaveError.message}`);
+			}
+		} else {
+			logFn.info(`performResearch: Skipping saveToFile. saveToFile: ${options.saveToFile}, researchResult is null? ${researchResult == null}`);
 		}
 
-		logFn.success('Research query completed successfully');
 
+		// Auto-save to task/subtask if requested (this is the part for `saveTo`)
+		// This should use researchResult which is agent's text on resumption
+		if (saveTo && researchResult != null) {
+			logFn.info(`performResearch: Entering saveTo block for task ID '${saveTo}'. researchResult is not null.`);
+			try {
+				const isSubtask = saveTo.includes('.');
+				let researchContent = `## Research Query: ${query.trim()}\n\n`;
+				if (detailLevel) researchContent += `**Detail Level:** ${detailLevel}\n`; // Use actual detailLevel from options
+				if (gatheredContext?.length) researchContent += `**Context Size:** ${gatheredContext.length} characters\n`;
+				researchContent += `**Timestamp:** ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}\n\n`;
+				researchContent += `### Results\n\n${researchResult}`; // researchResult is agent's text or direct LLM text
+
+				logFn.debug(`performResearch: researchContent for saveTo: ${researchContent.substring(0,200)}...`);
+
+				const tasksPath = path.join(
+					projectRoot,
+					'.taskmaster',
+					'tasks',
+					'tasks.json'
+				);
+				logFn.debug(`performResearch: tasksPath for saveTo: ${tasksPath}`);
+
+				// Ensure context passed to updateTaskById/updateSubtaskById has projectRoot
+				const internalUpdateContext = {
+					session: context.session, // from original context parameter
+					mcpLog: logFn,          // use the logFn established in performResearch
+					commandName: `research-saveTo-${isSubtask ? 'subtask' : 'task'}`,
+					outputType: context.outputType, // from original context parameter
+					projectRoot: projectRoot,     // projectRoot from performResearch's scope
+					tag: context.tag              // Pass tag from original context
+				};
+				logFn.debug(`performResearch: internalUpdateContext for saveTo: ${JSON.stringify(internalUpdateContext)}`);
+
+
+				if (isSubtask) {
+					logFn.info(`performResearch: Attempting to save to subtask ${saveTo}.`);
+					const { updateSubtaskById } = await import(
+						'./update-subtask-by-id.js' // Relative path
+					);
+					await updateSubtaskById(
+						tasksPath,
+						saveTo,
+						researchContent,
+						false,
+						internalUpdateContext,
+						'json' // outputFormat for internal call
+					);
+				} else {
+					logFn.info(`performResearch: Attempting to save to task ${saveTo}.`);
+					const updateTaskById = (await import(
+						'./update-task-by-id.js' // Relative path
+					)).default;
+					const taskIdNum = parseInt(saveTo, 10);
+					await updateTaskById(
+						tasksPath,
+						taskIdNum,
+						researchContent,
+						false,
+						internalUpdateContext,
+						'json',
+						true // appendMode = true for research appends
+					);
+				}
+				logFn.info(`performResearch: Research successfully saved to task/subtask ${saveTo}.`);
+			} catch (saveError) {
+				logFn.error(`performResearch: Error saving research to task/subtask ${saveTo}: ${saveError.message}`);
+				logFn.error(`performResearch: Save error stack: ${saveError.stack}`);
+				// Do not re-throw, allow the main research operation to return successfully if research itself was obtained
+			}
+		} else {
+			logFn.info(`performResearch: Skipping saveTo. saveTo: ${saveTo}, researchResult is null? ${researchResult == null}`);
+		}
+
+
+		logFn.success('performResearch: Main logic completed successfully.');
+		// Final return structure
 		return {
 			query,
-			result: researchResult,
-			contextSize: gatheredContext.length,
-			contextTokens: tokenBreakdown.total,
+			result: researchResult, // This is the agent's text or direct LLM text
+			contextSize: gatheredContext.length, // Recalculate or use from contextResult if available
+			contextTokens: tokenBreakdown?.total, // Use from contextResult
 			tokenBreakdown,
 			systemPromptTokens,
 			userPromptTokens,
