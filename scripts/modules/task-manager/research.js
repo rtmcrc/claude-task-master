@@ -282,7 +282,10 @@ async function performResearch(
 					originalCommand: commandName, // Use the destructured commandName from the context parameter
 					role: 'research', // The role that was delegated
 					serviceType: 'generateText', // Agent is expected to generate text
-					requestParameters: aiResult.mainResult.details // Contains modelId, messages, originalSaveTo etc.
+					requestParameters: {
+						...aiResult.mainResult.details, // Contains modelId, messages, originalSaveTo etc.
+						tagInfo: aiResult.tagInfo // Pass along the tagInfo
+					}
 				}
 			};
 			logFn.debug(`Transformed pendingInteraction for research: ${JSON.stringify(pendingInteractionObject)}`);

@@ -234,8 +234,20 @@ class TaskMasterMCPServer {
 						const agentError = error || (typeof finalLLMOutput === 'string' ? new Error(finalLLMOutput) : new Error('Agent LLM call failed'));
 						pendingData.reject(agentError);
 					} else {
-						pendingData.resolve(finalLLMOutput);
-						// vvv NEW LOGIC START vvv
+						// Construct the object that generateTextService and similar would return
+						const projectRootForCallback = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri || '.';
+						const resolvedData = {
+							mainResult: finalLLMOutput, // This is agentLLMResponse.data (the text string)
+							telemetryData: null,        // No direct Taskmaster LLM call telemetry
+							tagInfo: pendingData.delegatedCallDetails?.requestParameters?.tagInfo || { currentTag: 'master', availableTags: ['master'] } // Retrieve stored tagInfo, or default
+						};
+						pendingData.resolve(resolvedData);
+
+						// vvv EXISTING POST-PROCESSING LOGIC vvv
+						// This logic should ideally use the 'resolvedData' or parts of it if needed,
+						// or operate based on pendingData.originalToolArgs and finalLLMOutput.
+						// For now, the primary goal is that pendingData.resolve gets the correct structure.
+
 						if (pendingData.originalToolName === 'parse_prd' && agentLLMStatus !== 'llm_response_error' && finalLLMOutput) {
 							const projectRootForSaving = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri;
 
