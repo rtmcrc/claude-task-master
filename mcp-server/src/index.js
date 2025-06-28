@@ -13,6 +13,7 @@ import { saveUpdatedTaskFromAgent } from './core/utils/update-task-saver.js';
 import { saveNewTaskFromAgent } from './core/utils/add-task-saver.js';
 import { saveMultipleTasksFromAgent } from './core/utils/agent-bulk-task-saver.js';
 import { saveSubtaskDetailsFromAgent } from './core/utils/update-subtask-saver.js';
+import { handleAgentResearchResult } from './core/utils/research-result-handler.js'; // Added for research post-processing
 // import { v4 as uuidv4 } from 'uuid'; // Already in agent_llm.js and agent-llm.js, not directly needed here yet unless core generates IDs
 
 // Load environment variables
@@ -453,6 +454,33 @@ class TaskMasterMCPServer {
 							}
 						}
 						// ^^^ NEW ELSE IF BLOCK END ^^^
+						// vvv NEW ELSE IF BLOCK FOR 'research' post-processing vvv
+						else if (pendingData.originalToolName === 'research' && agentLLMStatus !== 'llm_response_error' && finalLLMOutput) {
+							const projectRootForHandling = pendingData.originalToolArgs?.projectRoot || pendingData.session?.roots?.[0]?.uri;
+							const originalToolArguments = pendingData.originalToolArgs; // Contains query, saveTo, saveToFile, etc.
+							const agentResearchText = finalLLMOutput; // The plain text from agent
+
+							if (projectRootForHandling && originalToolArguments && agentResearchText) {
+								log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Post-processing for 'research'. Calling handleAgentResearchResult.`);
+
+								handleAgentResearchResult(agentResearchText, originalToolArguments, projectRootForHandling, log, pendingData.session)
+									.then(handlerResult => {
+										if (handlerResult.success) {
+											log.info(`TaskMasterMCPServer [Interaction: ${interactionId}]: Successfully processed research result via handler. Task updated: ${handlerResult.taskUpdated}, File saved: ${handlerResult.filePath}`);
+										} else {
+											log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Error in handleAgentResearchResult for 'research'. Error: ${handlerResult.error}`);
+										}
+									})
+									.catch(handlerError => {
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Exception during handleAgentResearchResult for 'research'. Error: ${handlerError.message}`);
+										log.error(`TaskMasterMCPServer [Interaction: ${interactionId}]: Handler error stack: ${handlerError.stack}`);
+									});
+							} else {
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Cannot post-process 'research' result due to missing projectRoot, originalToolArguments, or agentResearchText.`);
+								log.warn(`TaskMasterMCPServer [Interaction: ${interactionId}]: Details - projectRoot: ${projectRootForHandling}, finalLLMOutput: ${!!agentResearchText}, originalArgs: ${!!originalToolArguments}`);
+							}
+						}
+						// ^^^ END 'research' POST-PROCESSING BLOCK ^^^
 					}
 					this.pendingAgentLLMInteractions.delete(interactionId);
 					const agentAckMessage = { status: "agent_response_processed_by_taskmaster", interactionId };

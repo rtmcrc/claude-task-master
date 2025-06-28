@@ -385,11 +385,27 @@ async function performResearch(
 
 		// Auto-save to task/subtask if requested (this is the part for `saveTo`)
 		// This should use researchResult which is agent's text on resumption
-		if (saveTo && researchResult != null) {
-			logFn.info(`performResearch: Entering saveTo block for task ID '${saveTo}'. researchResult is not null.`);
-			try {
-				const isSubtask = saveTo.includes('.');
-				let researchContent = `## Research Query: ${query.trim()}\n\n`;
+		// Only run this save logic if it was a direct LLM call (telemetryData would exist)
+		// If it's a resumed delegated call, telemetryData from server is null, and server handles saving.
+		if (aiResult.telemetryData != null) { // This indicates a direct call, not a resumed delegated one
+			if (options.saveToFile && researchResult != null) { // Use options.saveToFile from original request
+				logFn.info(`performResearch (direct): Entering saveToFile block. saveToFile: ${options.saveToFile}, researchResult is not null.`);
+				const conversationHistory = [ /* ... as before ... */ ];
+				try {
+					finalSavedFilePath = await handleSaveToFile(conversationHistory, projectRoot, context, logFn);
+					logFn.info(`performResearch (direct): Saved to file: ${finalSavedFilePath}`);
+				} catch (fileSaveError) {
+					logFn.error(`performResearch (direct): Error during saveToFile: ${fileSaveError.message}`);
+				}
+			} else {
+				logFn.info(`performResearch (direct): Skipping saveToFile. saveToFile: ${options.saveToFile}, researchResult is null? ${researchResult == null}`);
+			}
+
+			if (saveTo && researchResult != null) { // saveTo is from destructured options
+				logFn.info(`performResearch (direct): Entering saveTo block for task ID '${saveTo}'. researchResult is not null.`);
+				try {
+					const isSubtask = saveTo.includes('.');
+					let researchContent = `## Research Query: ${query.trim()}\n\n`;
 				if (detailLevel) researchContent += `**Detail Level:** ${detailLevel}\n`; // Use actual detailLevel from options
 				if (gatheredContext?.length) researchContent += `**Context Size:** ${gatheredContext.length} characters\n`;
 				researchContent += `**Timestamp:** ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}\n\n`;
@@ -453,13 +469,14 @@ async function performResearch(
 				// Do not re-throw, allow the main research operation to return successfully if research itself was obtained
 			}
 		} else {
-			logFn.info(`performResearch: Skipping saveTo. saveTo: ${saveTo}, researchResult is null? ${researchResult == null}`);
+			logFn.info(`performResearch (direct): Skipping saveTo. saveTo: ${saveTo}, researchResult is null? ${researchResult == null}`);
 		}
+	} // This closes `if (aiResult.telemetryData != null)`
 
-
-		logFn.success('performResearch: Main logic completed successfully.');
-		// Final return structure
-		return {
+	// This log was here before the save logic conditional, should remain outside
+	logFn.success('performResearch: Main logic completed successfully.');
+	// Final return structure
+	return {
 			query,
 			result: researchResult, // This is the agent's text or direct LLM text
 			contextSize: gatheredContext.length, // Recalculate or use from contextResult if available
