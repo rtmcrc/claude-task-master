@@ -483,113 +483,90 @@ The changes described in the prompt should be thoughtfully applied to make the t
 		}
 
 		try {
+			// --- Moved appendMode logic to the top ---
+			if (appendMode) {
+				report('info', `updateTaskById: Append mode for task ${taskId}. Using provided prompt as content.`);
+				const contentToAppend = prompt; // In appendMode, 'prompt' IS the content.
+				let newlyAddedSnippet = '';
+
+				if (contentToAppend && contentToAppend.trim()) {
+					const timestamp = new Date().toISOString();
+					// Ensure two newlines before the new info block if details already exist
+					const separator = taskToUpdate.details && taskToUpdate.details.trim() ? '\n\n' : '';
+					const formattedBlock = `<info added on ${timestamp}>\n${contentToAppend.trim()}\n</info added on ${timestamp}>`;
+					newlyAddedSnippet = formattedBlock;
+					taskToUpdate.details = (taskToUpdate.details || '') + separator + formattedBlock;
+				} else {
+					report('warn', 'Content to append is empty or whitespace. Original details remain unchanged.');
+					newlyAddedSnippet = 'No new details were appended (content was empty).';
+				}
+
+				if (prompt.length < 100 && taskToUpdate.description) { // Check if description exists
+					taskToUpdate.description += ` [Updated: ${new Date().toLocaleDateString()}]`;
+				}
+
+				data.tasks[taskIndex] = taskToUpdate;
+				writeJSON(tasksPath, data, projectRoot, currentTag);
+				report('success', `Successfully appended to task ${taskId}`);
+
+				if (outputFormat === 'text') {
+					console.log(
+						boxen(
+							chalk.green(`Successfully appended to task #${taskId}`) +
+								'\n\n' + chalk.white.bold('Title:') + ' ' + taskToUpdate.title +
+								'\n\n' + chalk.white.bold('Newly Added Content Snippet:') + '\n' + chalk.white(newlyAddedSnippet.substring(0, 200) + (newlyAddedSnippet.length > 200 ? '...' : '')),
+							{ padding: 1, borderColor: 'green', borderStyle: 'round' }
+						)
+					);
+				}
+				// No AI call made in this direct append path, so no telemetryData from generateTextService.
+				// tagInfo can be constructed from existing context.
+				return {
+					updatedTask: taskToUpdate,
+					telemetryData: null,
+					tagInfo: context.tagInfo || { currentTag: currentTag, availableTags: data.tags || ['master'] }
+				};
+			}
+			// --- End of appendMode logic ---
+
+			// If not appendMode, proceed with AI-based full update
 			const serviceRole = useResearch ? 'research' : 'main';
 			aiServiceResponse = await generateTextService({
 				role: serviceRole,
 				session: session,
 				projectRoot: projectRoot,
-				systemPrompt: systemPrompt,
-				prompt: userPrompt,
+				systemPrompt: systemPrompt, // systemPrompt and userPrompt are for full update
+				prompt: userPrompt,       // userPrompt for full update
 				commandName: 'update-task',
 				outputType: isMCP ? 'mcp' : 'cli'
 			});
 
-			// === BEGIN AGENT_LLM_DELEGATION HANDLING ===
+			// === BEGIN AGENT_LLM_DELEGATION HANDLING (for full update) ===
 			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
 				report('info', "updateTaskById (core): Detected agent_llm_delegation signal.");
-				// Stop loading indicator if it was started (for CLI mode, but good practice)
 				if (loadingIndicator) stopLoadingIndicator(loadingIndicator);
-
 				return {
 					needsAgentDelegation: true,
 					pendingInteraction: {
 						type: "agent_llm",
 						interactionId: aiServiceResponse.mainResult.interactionId,
 						delegatedCallDetails: {
-							originalCommand: context.commandName || "update_task", // Will be set by updateTaskByIdDirect
-							role: serviceRole, // serviceRole is already defined in this scope
-							serviceType: "generateText", // Agent expected to return JSON string of the updated task
+							originalCommand: context.commandName || "update_task",
+							role: serviceRole,
+							serviceType: "generateText",
 							requestParameters: {
-								...aiServiceResponse.mainResult.details, // Includes prompt, systemPrompt, modelId etc.
-								// Pass original task ID for context, agent might need it if not in prompt/details
+								...aiServiceResponse.mainResult.details,
 								originalTaskId: taskId
 							}
 						}
 					}
-					// No 'updatedTask' or 'telemetryData' here as the operation is pending.
 				};
 			}
 			// === END AGENT_LLM_DELEGATION HANDLING ===
 
-			if (loadingIndicator)
-				stopLoadingIndicator(loadingIndicator, 'AI update complete.');
+			if (loadingIndicator) stopLoadingIndicator(loadingIndicator, 'AI update complete.');
 
-			if (appendMode) {
-				// Append mode: handle as plain text
-				const generatedContentString = aiServiceResponse.mainResult;
-				let newlyAddedSnippet = '';
-
-				if (generatedContentString && generatedContentString.trim()) {
-					const timestamp = new Date().toISOString();
-					const formattedBlock = `<info added on ${timestamp}>\n${generatedContentString.trim()}\n</info added on ${timestamp}>`;
-					newlyAddedSnippet = formattedBlock;
-
-					// Append to task details
-					taskToUpdate.details =
-						(taskToUpdate.details ? taskToUpdate.details + '\n' : '') +
-						formattedBlock;
-				} else {
-					report(
-						'warn',
-						'AI response was empty or whitespace after trimming. Original details remain unchanged.'
-					);
-					newlyAddedSnippet = 'No new details were added by the AI.';
-				}
-
-				// Update description with timestamp if prompt is short
-				if (prompt.length < 100) {
-					if (taskToUpdate.description) {
-						taskToUpdate.description += ` [Updated: ${new Date().toLocaleDateString()}]`;
-					}
-				}
-
-				// Write the updated task back to file
-				data.tasks[taskIndex] = taskToUpdate;
-				writeJSON(tasksPath, data, projectRoot, currentTag);
-				report('success', `Successfully appended to task ${taskId}`);
-
-				// Display success message for CLI
-				if (outputFormat === 'text') {
-					console.log(
-						boxen(
-							chalk.green(`Successfully appended to task #${taskId}`) +
-								'\n\n' +
-								chalk.white.bold('Title:') +
-								' ' +
-								taskToUpdate.title +
-								'\n\n' +
-								chalk.white.bold('Newly Added Content:') +
-								'\n' +
-								chalk.white(newlyAddedSnippet),
-							{ padding: 1, borderColor: 'green', borderStyle: 'round' }
-						)
-					);
-				}
-
-				// Display AI usage telemetry for CLI users
-				if (outputFormat === 'text' && aiServiceResponse.telemetryData) {
-					displayAiUsageSummary(aiServiceResponse.telemetryData, 'cli');
-				}
-
-				// Return the updated task
-				return {
-					updatedTask: taskToUpdate,
-					telemetryData: aiServiceResponse.telemetryData,
-					tagInfo: aiServiceResponse.tagInfo
-				};
-			}
-
-			// Full update mode: Use mainResult (text) for parsing
+			// Full update mode: Use mainResult (text) for parsing (this path is now only for non-appendMode)
 			const updatedTask = parseUpdatedTaskFromText(
 				aiServiceResponse.mainResult,
 				taskId,
