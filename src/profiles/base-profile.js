@@ -30,7 +30,7 @@ export function createProfile(editorConfig) {
 		url,
 		docsUrl,
 		profileDir,
-		rulesDir = `${profileDir}/rules`,
+		rulesDir = path.join(profileDir, 'rules'),
 		mcpConfig = true,
 		mcpConfigName = 'mcp.json',
 		fileExtension = '.mdc',
@@ -44,7 +44,7 @@ export function createProfile(editorConfig) {
 		onPostConvert
 	} = editorConfig;
 
-	const mcpConfigPath = `${profileDir}/${mcpConfigName}`;
+	const mcpConfigPath = path.join(profileDir, mcpConfigName);
 
 	// Standard file mapping with custom overrides
 	// Use taskmaster subdirectory only if profile supports it
@@ -53,7 +53,8 @@ export function createProfile(editorConfig) {
 		'cursor_rules.mdc': `${name.toLowerCase()}_rules${targetExtension}`,
 		'dev_workflow.mdc': `${taskmasterPrefix}dev_workflow${targetExtension}`,
 		'self_improve.mdc': `self_improve${targetExtension}`,
-		'taskmaster.mdc': `${taskmasterPrefix}taskmaster${targetExtension}`
+		'taskmaster.mdc': `${taskmasterPrefix}taskmaster${targetExtension}`,
+		'agent_llm.mdc': `${taskmasterPrefix}agent_llm${targetExtension}`
 	};
 
 	const fileMap = { ...defaultFileMap, ...customFileMap };
@@ -190,11 +191,16 @@ export function createProfile(editorConfig) {
 					fileMap[`${baseName}.mdc`] || `${baseName}${targetExtension}`;
 				// Update the link text to match the new filename (strip directory path for display)
 				const newLinkText = path.basename(newFileName);
-				// For Cursor, keep the mdc: protocol; for others, use standard relative paths
+
+				// Construct the full path using OS-specific separators first
+				const fullPathOsSpecific = path.join(rulesDir, newFileName);
+				// For all Markdown links, convert to forward slashes for web/Markdown compatibility
+				const linkPath = fullPathOsSpecific.replace(/\\/g, '/');
+
 				if (name.toLowerCase() === 'cursor') {
-					return `[${newLinkText}](mdc:${rulesDir}/${newFileName})`;
+					return `[${newLinkText}](mdc:${linkPath})`;
 				} else {
-					return `[${newLinkText}](${rulesDir}/${newFileName})`;
+					return `[${newLinkText}](${linkPath})`;
 				}
 			}
 		}

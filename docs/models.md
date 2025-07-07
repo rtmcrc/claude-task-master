@@ -76,6 +76,7 @@
 | claude-code | sonnet                                         | 0.727     | 0          | 0           |
 | gemini-cli  | gemini-2.5-pro                                 | 0.72      | 0          | 0           |
 | gemini-cli  | gemini-2.5-flash                               | 0.71      | 0          | 0           |
+| agentllm    | agent-delegated-model                          | 0         | 0          | 0           |
 
 ## Research Models
 
@@ -101,6 +102,7 @@
 | claude-code | sonnet                                       | 0.727     | 0          | 0           |
 | gemini-cli  | gemini-2.5-pro                               | 0.72      | 0          | 0           |
 | gemini-cli  | gemini-2.5-flash                             | 0.71      | 0          | 0           |
+| agentllm    | agent-delegated-model                        | 0         | 0          | 0           |
 
 ## Fallback Models
 
@@ -167,3 +169,4 @@
 | claude-code | sonnet                                         | 0.727     | 0          | 0           |
 | gemini-cli  | gemini-2.5-pro                                 | 0.72      | 0          | 0           |
 | gemini-cli  | gemini-2.5-flash                               | 0.71      | 0          | 0           |
+| agentllm    | agent-delegated-model                          | 0         | 0          | 0           |

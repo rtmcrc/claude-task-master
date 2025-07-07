@@ -3,6 +3,7 @@ import {
 	getRulesProfile
 } from '../../../src/utils/rule-transformer.js';
 import { RULE_PROFILES } from '../../../src/constants/profiles.js';
+import path from 'path';
 
 describe('Rule Transformer - General', () => {
 	describe('Profile Configuration Validation', () => {
@@ -103,6 +104,7 @@ describe('Rule Transformer - General', () => {
 
 		it('should have valid fileMap with required files for each profile', () => {
 			const expectedFiles = [
+				'agent_llm.mdc',
 				'cursor_rules.mdc',
 				'dev_workflow.mdc',
 				'self_improve.mdc',
@@ -169,55 +171,75 @@ describe('Rule Transformer - General', () => {
 				expect(typeof profileConfig.mcpConfigPath).toBe('string');
 
 				// Check that mcpConfigPath is properly constructed
-				expect(profileConfig.mcpConfigPath).toBe(
-					`${profileConfig.profileDir}/${profileConfig.mcpConfigName}`
-				);
+							const expectedMcpPath = path.join(profileConfig.profileDir, profileConfig.mcpConfigName);
+							expect(profileConfig.mcpConfigPath).toBe(expectedMcpPath);
 			});
 		});
 
 		it('should have correct MCP configuration for each profile', () => {
-			const expectedConfigs = {
+			const baseExpectedConfigs = {
 				claude: {
 					mcpConfig: false,
 					mcpConfigName: null,
-					expectedPath: null
+					// expectedPath: null // Will remain null
+					profileDir: '.' // Dummy for path.join, won't be used if mcpConfigName is null
 				},
 				cline: {
 					mcpConfig: false,
 					mcpConfigName: 'cline_mcp_settings.json',
-					expectedPath: '.clinerules/cline_mcp_settings.json'
+					profileDir: '.clinerules'
+					// expectedPath: '.clinerules/cline_mcp_settings.json'
 				},
 				codex: {
 					mcpConfig: false,
 					mcpConfigName: null,
-					expectedPath: null
+					// expectedPath: null
+					profileDir: '.'
 				},
 				cursor: {
 					mcpConfig: true,
 					mcpConfigName: 'mcp.json',
-					expectedPath: '.cursor/mcp.json'
+					profileDir: '.cursor'
+					// expectedPath: '.cursor/mcp.json'
 				},
 				roo: {
 					mcpConfig: true,
 					mcpConfigName: 'mcp.json',
-					expectedPath: '.roo/mcp.json'
+					profileDir: '.roo'
+					// expectedPath: '.roo/mcp.json'
 				},
 				trae: {
 					mcpConfig: false,
 					mcpConfigName: 'trae_mcp_settings.json',
-					expectedPath: '.trae/trae_mcp_settings.json'
+					profileDir: '.trae'
+					// expectedPath: '.trae/trae_mcp_settings.json'
 				},
 				vscode: {
 					mcpConfig: true,
 					mcpConfigName: 'mcp.json',
-					expectedPath: '.vscode/mcp.json'
+					profileDir: '.vscode'
+					// expectedPath: '.vscode/mcp.json'
 				},
 				windsurf: {
 					mcpConfig: true,
 					mcpConfigName: 'mcp.json',
-					expectedPath: '.windsurf/mcp.json'
+					profileDir: '.windsurf'
+					// expectedPath: '.windsurf/mcp.json'
 				}
 			};
+
+			const expectedConfigs = Object.entries(baseExpectedConfigs).reduce(
+				(acc, [profileName, config]) => {
+					acc[profileName] = {
+						...config,
+						expectedPath: config.mcpConfigName
+							? path.join(config.profileDir, config.mcpConfigName)
+							: null
+					};
+					return acc;
+				},
+				{}
+			);
 
 			RULE_PROFILES.forEach((profile) => {
 				const profileConfig = getRulesProfile(profile);
@@ -243,11 +265,12 @@ describe('Rule Transformer - General', () => {
 				}
 
 				// The mcpConfigPath should start with the profileDir
-				expect(profileConfig.mcpConfigPath).toMatch(
-					new RegExp(
-						`^${profileConfig.profileDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`
-					)
-				);
+				// Escape profileDir for regex characters
+				const escapedProfileDir = profileConfig.profileDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+				// Escape path.sep for regex characters (e.g., '\' needs to be '\\')
+				const escapedPathSep = path.sep.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+				const startsWithProfileDirRegex = new RegExp(`^${escapedProfileDir}${escapedPathSep}`);
+				expect(profileConfig.mcpConfigPath).toMatch(startsWithProfileDirRegex);
 
 				// The mcpConfigPath should end with the mcpConfigName
 				expect(profileConfig.mcpConfigPath).toMatch(

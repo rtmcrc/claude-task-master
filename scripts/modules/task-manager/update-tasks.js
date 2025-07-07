@@ -39,7 +39,7 @@ const updatedTaskSchema = z
 		priority: z.string().nullable(),
 		details: z.string().nullable(),
 		testStrategy: z.string().nullable(),
-		subtasks: z.array(z.any()).nullable() // Keep subtasks flexible for now
+		subtasks: z.array(z.any()).nullable().optional().default([]) // Make optional and default to empty array
 	})
 	.strip(); // Allow potential extra fields during parsing if needed, then validate structure
 const updatedTaskArraySchema = z.array(updatedTaskSchema);
@@ -422,6 +422,36 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 				outputType: isMCP ? 'mcp' : 'cli'
 			});
 
+			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
+				if (isMCP) logFn.debug("updateTasks (core): Detected agent_llm_delegation signal.");
+				else logFn('debug', "updateTasks (core): Detected agent_llm_delegation signal.");
+				
+				// Stop loading indicator if it was started
+				if (loadingIndicator) stopLoadingIndicator(loadingIndicator);
+
+				return {
+					needsAgentDelegation: true,
+					pendingInteraction: {
+						type: "agent_llm", // Changed from "agent_llm_bulk_update"
+						interactionId: aiServiceResponse.mainResult.interactionId,
+						delegatedCallDetails: {
+							originalCommand: context.commandName || "update-tasks",
+							role: serviceRole, // This variable should be in scope
+							serviceType: "generateText", // updateTasks uses generateText
+							requestParameters: {
+								// These are the details from the agent_llm_delegation signal
+								...aiServiceResponse.mainResult.details, 
+								// Add specific context for updating multiple tasks
+								fromId: fromId, // fromId is a parameter of updateTasks
+								tasksToUpdate: tasksToUpdate, // tasksToUpdate is filtered earlier in the function
+								originalUserPrompt: prompt // The user's high-level prompt for changes
+							}
+						}
+					}
+					// No 'updatedTasks' or 'telemetryData' here as the operation is pending.
+				};
+			}
+
 			if (loadingIndicator)
 				stopLoadingIndicator(loadingIndicator, 'AI update complete.');
 
@@ -531,4 +561,4 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 	}
 }
 
-export default updateTasks;
+export { updateTasks as default, parseUpdatedTasksFromText };
