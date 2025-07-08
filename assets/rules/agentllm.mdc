@@ -1,4 +1,8 @@
 ---
+trigger: always_on
+---
+
+---
 description: Guidelines for agent_llm tool.
 globs: **/*
 alwaysApply: true

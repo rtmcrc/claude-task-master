@@ -16,7 +16,7 @@ export const vscodeProfile = createProfile({
 	toolMappings: COMMON_TOOL_MAPPINGS.STANDARD, // VS Code uses standard tool names
 	customFileMap: {
 		'cursor_rules.mdc': 'vscode_rules.md', // Rename cursor_rules to vscode_rules
-		'agent_llm.mdc': 'agent_llm.instructions.md'
+		'agentllm.mdc': 'agentllm.instructions.md'
 	},
 	customReplacements: [
 		// Core VS Code directory structure changes
