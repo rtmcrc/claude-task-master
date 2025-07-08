@@ -261,22 +261,26 @@ Guidelines:
 		});
 
 		// === BEGIN AGENT_LLM_DELEGATION HANDLING ===
-		if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
-			logFn.debug("parsePRD: Detected agent_llm_delegation signal.");
+		if (
+			aiServiceResponse &&
+			aiServiceResponse.mainResult &&
+			aiServiceResponse.mainResult.type === 'agent_llm_delegation'
+		) {
+			logFn.debug('parsePRD: Detected agent_llm_delegation signal.');
 			return {
 				success: true,
 				needsAgentDelegation: true,
 				pendingInteraction: {
-					type: "agent_llm",
+					type: 'agent_llm',
 					interactionId: aiServiceResponse.mainResult.interactionId,
 					delegatedCallDetails: {
-						originalCommand: options.commandName || "parse_prd", // options.commandName might be from MCP call
+						originalCommand: options.commandName || 'parse_prd', // options.commandName might be from MCP call
 						role: research ? 'research' : 'main',
-						serviceType: "generateObject",
+						serviceType: 'generateObject',
 						requestParameters: aiServiceResponse.mainResult.details
 					}
 				},
-				message: "Awaiting LLM processing via agent-llm for PRD parsing.",
+				message: 'Awaiting LLM processing via agent-llm for PRD parsing.',
 				telemetryData: null // No direct LLM call was completed by this function
 			};
 		}

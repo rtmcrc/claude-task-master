@@ -422,25 +422,36 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 				outputType: isMCP ? 'mcp' : 'cli'
 			});
 
-			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
-				if (isMCP) logFn.debug("updateTasks (core): Detected agent_llm_delegation signal.");
-				else logFn('debug', "updateTasks (core): Detected agent_llm_delegation signal.");
-				
+			if (
+				aiServiceResponse &&
+				aiServiceResponse.mainResult &&
+				aiServiceResponse.mainResult.type === 'agent_llm_delegation'
+			) {
+				if (isMCP)
+					logFn.debug(
+						'updateTasks (core): Detected agent_llm_delegation signal.'
+					);
+				else
+					logFn(
+						'debug',
+						'updateTasks (core): Detected agent_llm_delegation signal.'
+					);
+
 				// Stop loading indicator if it was started
 				if (loadingIndicator) stopLoadingIndicator(loadingIndicator);
 
 				return {
 					needsAgentDelegation: true,
 					pendingInteraction: {
-						type: "agent_llm", // Changed from "agent_llm_bulk_update"
+						type: 'agent_llm', // Changed from "agent_llm_bulk_update"
 						interactionId: aiServiceResponse.mainResult.interactionId,
 						delegatedCallDetails: {
-							originalCommand: context.commandName || "update-tasks",
+							originalCommand: context.commandName || 'update-tasks',
 							role: serviceRole, // This variable should be in scope
-							serviceType: "generateText", // updateTasks uses generateText
+							serviceType: 'generateText', // updateTasks uses generateText
 							requestParameters: {
 								// These are the details from the agent_llm_delegation signal
-								...aiServiceResponse.mainResult.details, 
+								...aiServiceResponse.mainResult.details,
 								// Add specific context for updating multiple tasks
 								fromId: fromId, // fromId is a parameter of updateTasks
 								tasksToUpdate: tasksToUpdate, // tasksToUpdate is filtered earlier in the function

@@ -151,9 +151,16 @@ const mockOllamaProvider = {
 };
 
 const mockAgentLLMProvider = {
-	generateText: jest.fn().mockResolvedValue({ mainResult: 'mocked agent text', telemetryData: {} }),
+	generateText: jest
+		.fn()
+		.mockResolvedValue({ mainResult: 'mocked agent text', telemetryData: {} }),
 	streamText: jest.fn(),
-	generateObject: jest.fn().mockResolvedValue({ mainResult: { someKey: 'agentValue' }, telemetryData: {} })
+	generateObject: jest
+		.fn()
+		.mockResolvedValue({
+			mainResult: { someKey: 'agentValue' },
+			telemetryData: {}
+		})
 };
 
 // Mock the provider classes to return our mock instances
@@ -205,10 +212,10 @@ jest.unstable_mockModule('../../src/ai-providers/index.js', () => ({
 		generateObject: jest.fn()
 	})),
 	AgentLLMProvider: jest.fn(() => ({
-    	generateText: jest.fn(),
-    	streamText: jest.fn(),
-    	generateObject: jest.fn()
-  }))
+		generateText: jest.fn(),
+		streamText: jest.fn(),
+		generateObject: jest.fn()
+	}))
 }));
 
 // Mock utils logger, API key resolver, AND findProjectRoot

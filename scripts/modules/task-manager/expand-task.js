@@ -443,9 +443,13 @@ async function expandTask(
 	};
 
 	if (mcpLog) {
-		logger.info(`expandTask called with context: session=${!!session}, resolved outputType for AI: ${determinedOutputType}`);
+		logger.info(
+			`expandTask called with context: session=${!!session}, resolved outputType for AI: ${determinedOutputType}`
+		);
 	} else {
-		logger.debug(`expandTask called in CLI mode, resolved outputType for AI: ${determinedOutputType}`);
+		logger.debug(
+			`expandTask called in CLI mode, resolved outputType for AI: ${determinedOutputType}`
+		);
 	}
 
 	try {
@@ -626,7 +630,8 @@ async function expandTask(
 		// --- AI Subtask Generation using generateTextService ---
 		let generatedSubtasks = [];
 		let loadingIndicator = null;
-		if (!isMCPCall) { // Replaced outputFormat === 'text' with !isMCPCall
+		if (!isMCPCall) {
+			// Replaced outputFormat === 'text' with !isMCPCall
 			loadingIndicator = startLoadingIndicator(
 				`Generating ${finalSubtaskCount || 'appropriate number of'} subtasks...\n`
 			);
@@ -650,24 +655,30 @@ async function expandTask(
 			});
 
 			// === BEGIN AGENT_LLM_DELEGATION HANDLING ===
-			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
-				logger.debug("expandTask (core): Detected agent_llm_delegation signal.");
+			if (
+				aiServiceResponse &&
+				aiServiceResponse.mainResult &&
+				aiServiceResponse.mainResult.type === 'agent_llm_delegation'
+			) {
+				logger.debug(
+					'expandTask (core): Detected agent_llm_delegation signal.'
+				);
 				return {
 					needsAgentDelegation: true,
 					pendingInteraction: {
-						type: "agent_llm",
+						type: 'agent_llm',
 						interactionId: aiServiceResponse.mainResult.interactionId,
 						delegatedCallDetails: {
-							originalCommand: context.commandName || "expand-task", // context.commandName is from options
+							originalCommand: context.commandName || 'expand-task', // context.commandName is from options
 							role: useResearch ? 'research' : 'main',
 							// If we change to generateObjectService for agents, this would be 'generateObject'
 							// and requestParameters.schema would be subtaskWrapperSchema.
 							// For now, assuming agent handles generateText and returns parseable JSON string.
-							serviceType: "generateText",
+							serviceType: 'generateText',
 							requestParameters: {
 								...aiServiceResponse.mainResult.details, // Spread existing details (prompt, systemPrompt, etc.)
-								nextSubtaskId: nextSubtaskId,           // Add nextSubtaskId
-								numSubtasksForAgent: finalSubtaskCount  // Add finalSubtaskCount (as numSubtasksForAgent)
+								nextSubtaskId: nextSubtaskId, // Add nextSubtaskId
+								numSubtasksForAgent: finalSubtaskCount // Add finalSubtaskCount (as numSubtasksForAgent)
 							}
 						}
 					}
@@ -738,7 +749,8 @@ async function expandTask(
 	} catch (error) {
 		// Catches errors from file reading, parsing, AI call etc.
 		logger.error(`Error expanding task ${taskId}: ${error.message}`, 'error');
-		if (!isMCPCall && getDebugFlag(session)) { // Replaced outputFormat === 'text' with !isMCPCall
+		if (!isMCPCall && getDebugFlag(session)) {
+			// Replaced outputFormat === 'text' with !isMCPCall
 			console.error(error); // Log full stack in debug CLI mode
 		}
 		throw error; // Re-throw for the caller

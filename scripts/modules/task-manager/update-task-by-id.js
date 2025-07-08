@@ -496,20 +496,27 @@ The changes described in the prompt should be thoughtfully applied to make the t
 			});
 
 			// === BEGIN AGENT_LLM_DELEGATION HANDLING ===
-			if (aiServiceResponse && aiServiceResponse.mainResult && aiServiceResponse.mainResult.type === 'agent_llm_delegation') {
-				report('debug', "updateTaskById (core): Detected agent_llm_delegation signal.");
+			if (
+				aiServiceResponse &&
+				aiServiceResponse.mainResult &&
+				aiServiceResponse.mainResult.type === 'agent_llm_delegation'
+			) {
+				report(
+					'debug',
+					'updateTaskById (core): Detected agent_llm_delegation signal.'
+				);
 				// Stop loading indicator if it was started (for CLI mode, but good practice)
 				if (loadingIndicator) stopLoadingIndicator(loadingIndicator);
 
 				return {
 					needsAgentDelegation: true,
 					pendingInteraction: {
-						type: "agent_llm",
+						type: 'agent_llm',
 						interactionId: aiServiceResponse.mainResult.interactionId,
 						delegatedCallDetails: {
-							originalCommand: context.commandName || "update_task", // Will be set by updateTaskByIdDirect
+							originalCommand: context.commandName || 'update_task', // Will be set by updateTaskByIdDirect
 							role: serviceRole, // serviceRole is already defined in this scope
-							serviceType: "generateText", // Agent expected to return JSON string of the updated task
+							serviceType: 'generateText', // Agent expected to return JSON string of the updated task
 							requestParameters: {
 								...aiServiceResponse.mainResult.details, // Includes prompt, systemPrompt, modelId etc.
 								// Pass original task ID for context, agent might need it if not in prompt/details

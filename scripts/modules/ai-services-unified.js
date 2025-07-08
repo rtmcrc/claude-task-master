@@ -472,7 +472,7 @@ async function _unifiedServiceRunner(serviceType, params) {
 
 			// Enhanced skip logic for agentllm in non-MCP (CLI) contexts
 			if (providerName?.toLowerCase() === 'agentllm' && outputType === 'cli') {
-					log(
+				log(
 					'warn',
 					`Skipping role '${currentRole}' (Provider: ${providerName}): AgentLLM is intended for MCP delegation and is skipped for direct CLI calls.`
 				);
@@ -481,7 +481,7 @@ async function _unifiedServiceRunner(serviceType, params) {
 					new Error(
 						`AgentLLM provider '${providerName}' (role: ${currentRole}) is skipped in CLI mode.`
 					);
-					continue; // Skip to the next role in the sequence
+				continue; // Skip to the next role in the sequence
 			}
 
 			// Check API key if needed
@@ -622,9 +622,15 @@ async function _unifiedServiceRunner(serviceType, params) {
 			);
 
 			// === BEGIN MODIFICATION for AgentLLM Delegation ===
-			if (providerResponse && providerResponse.type === 'agent_llm_delegation') {
+			if (
+				providerResponse &&
+				providerResponse.type === 'agent_llm_delegation'
+			) {
 				if (getDebugFlag()) {
-					log('info', `Role ${currentRole} (Provider: ${providerName}) signaled agent_llm_delegation for command ${commandName}. Details: ${JSON.stringify(providerResponse.details)}`);
+					log(
+						'info',
+						`Role ${currentRole} (Provider: ${providerName}) signaled agent_llm_delegation for command ${commandName}. Details: ${JSON.stringify(providerResponse.details)}`
+					);
 				}
 				// Propagate the delegation signal object upwards.
 				// The calling function (e.g., an MCP tool) will use this to build the pendingInteraction field.

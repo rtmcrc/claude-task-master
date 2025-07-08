@@ -110,7 +110,8 @@ async function performResearch(
 		let autoDiscoveredIds = [];
 
 		try {
-			const tasksPathForDiscovery = path.join( // tasksPathForDiscovery instead of tasksPath
+			const tasksPathForDiscovery = path.join(
+				// tasksPathForDiscovery instead of tasksPath
 				projectRoot,
 				'.taskmaster',
 				'tasks',
@@ -262,21 +263,37 @@ async function performResearch(
 		logFn.info(`performResearch: generateTextService call completed.`);
 		logFn.debug(`performResearch: aiResult raw: ${JSON.stringify(aiResult)}`);
 		if (aiResult && aiResult.mainResult) {
-			logFn.info(`performResearch: aiResult.mainResult type: ${typeof aiResult.mainResult}`);
-			if (typeof aiResult.mainResult === 'object' && aiResult.mainResult !== null) {
-				logFn.info(`performResearch: aiResult.mainResult.type property: ${aiResult.mainResult.type}`);
+			logFn.info(
+				`performResearch: aiResult.mainResult type: ${typeof aiResult.mainResult}`
+			);
+			if (
+				typeof aiResult.mainResult === 'object' &&
+				aiResult.mainResult !== null
+			) {
+				logFn.info(
+					`performResearch: aiResult.mainResult.type property: ${aiResult.mainResult.type}`
+				);
 			} else if (typeof aiResult.mainResult === 'string') {
-				logFn.info(`performResearch: aiResult.mainResult (string start): ${aiResult.mainResult.substring(0, 200)}...`);
+				logFn.info(
+					`performResearch: aiResult.mainResult (string start): ${aiResult.mainResult.substring(0, 200)}...`
+				);
 			}
 		} else {
-			logFn.warn(`performResearch: aiResult or aiResult.mainResult is null/undefined.`);
+			logFn.warn(
+				`performResearch: aiResult or aiResult.mainResult is null/undefined.`
+			);
 		}
-
 
 		// === BEGIN AGENT_LLM DELEGATION SIGNAL CHECK ===
 		// Check if generateTextService (via _unifiedServiceRunner) returned a delegation signal
-		if (aiResult && aiResult.mainResult && aiResult.mainResult.type === 'agent_llm_delegation') {
-			logFn.debug(`AgentLLM delegation signal received from AI service for research. Propagating initial signal.`);
+		if (
+			aiResult &&
+			aiResult.mainResult &&
+			aiResult.mainResult.type === 'agent_llm_delegation'
+		) {
+			logFn.debug(
+				`AgentLLM delegation signal received from AI service for research. Propagating initial signal.`
+			);
 			// aiResult.mainResult is the { type: 'agent_llm_delegation', interactionId, details } object
 			// Construct the full signal expected by researchDirect and then the MCP tool,
 			// matching the structure observed for update_task.
@@ -293,7 +310,9 @@ async function performResearch(
 					}
 				}
 			};
-			logFn.debug(`Transformed pendingInteraction for research: ${JSON.stringify(pendingInteractionObject)}`);
+			logFn.debug(
+				`Transformed pendingInteraction for research: ${JSON.stringify(pendingInteractionObject)}`
+			);
 			return {
 				needsAgentDelegation: true,
 				pendingInteraction: pendingInteractionObject,
@@ -308,7 +327,7 @@ async function performResearch(
 				totalInputTokens,
 				detailLevel,
 				telemetryData: null, // No direct AI call was finalized here
-				tagInfo: aiResult.tagInfo, // tagInfo can still be relevant
+				tagInfo: aiResult.tagInfo // tagInfo can still be relevant
 			};
 		}
 		// === END AGENT_LLM DELEGATION SIGNAL CHECK ===
@@ -317,19 +336,26 @@ async function performResearch(
 		const telemetryData = aiResult.telemetryData; // Should be null if agent_llm, populated otherwise
 		const tagInfo = aiResult.tagInfo; // Should always be populated
 
-		logFn.info(`performResearch: researchResult (from agent or direct LLM): ${typeof researchResult === 'string' ? researchResult.substring(0, 100) + '...' : JSON.stringify(researchResult)}`);
-		logFn.debug(`performResearch: telemetryData: ${JSON.stringify(telemetryData)}`);
+		logFn.info(
+			`performResearch: researchResult (from agent or direct LLM): ${typeof researchResult === 'string' ? researchResult.substring(0, 100) + '...' : JSON.stringify(researchResult)}`
+		);
+		logFn.debug(
+			`performResearch: telemetryData: ${JSON.stringify(telemetryData)}`
+		);
 		logFn.debug(`performResearch: tagInfo: ${JSON.stringify(tagInfo)}`);
 		logFn.debug(`performResearch: options.saveTo parameter: ${options.saveTo}`); // Access directly from options
-		logFn.debug(`performResearch: researchResult is null? ${researchResult == null}`);
-
+		logFn.debug(
+			`performResearch: researchResult is null? ${researchResult == null}`
+		);
 
 		// Format and display results (only for CLI direct calls, not for MCP or when just saving)
 		// Initialize interactive save tracking
 		let interactiveSaveInfo = { interactiveSaveOccurred: false };
 
-		if (outputFormat === 'text') { // Typically CLI mode
-			if (researchResult != null) { // Only display if there's a result
+		if (outputFormat === 'text') {
+			// Typically CLI mode
+			if (researchResult != null) {
+				// Only display if there's a result
 				displayResearchResults(
 					researchResult,
 					query,
@@ -337,11 +363,14 @@ async function performResearch(
 					tokenBreakdown
 				);
 			} else {
-				logFn.warn("performResearch: researchResult is null, skipping displayResearchResults.");
+				logFn.warn(
+					'performResearch: researchResult is null, skipping displayResearchResults.'
+				);
 			}
 
 			// Display AI usage telemetry for CLI users
-			if (telemetryData) { // Only if telemetryData exists (i.e., not agent_llm)
+			if (telemetryData) {
+				// Only if telemetryData exists (i.e., not agent_llm)
 				displayAiUsageSummary(telemetryData, 'cli');
 			}
 
@@ -363,16 +392,22 @@ async function performResearch(
 		// This save logic is for direct calls in MCP mode where options.saveToFile or options.saveTo are provided directly,
 		// or for CLI mode if interactive save doesn't happen and these were somehow passed (legacy).
 		// It only runs if telemetryData is present (i.e., not a resumed delegated call where server handles saving).
-		if (aiResult.telemetryData != null) { // This indicates a direct call, not a resumed delegated one
+		if (aiResult.telemetryData != null) {
+			// This indicates a direct call, not a resumed delegated one
 			// Handle saving to file if options.saveToFile is true
 			if (options.saveToFile && researchResult != null) {
-				logFn.info(`performResearch (direct): Entering saveToFile block. options.saveToFile: ${options.saveToFile}, researchResult is not null.`);
-				const conversationHistoryForFileSave = [{ // Use a distinct name
-					question: query,
-					answer: researchResult,
-					type: 'initial',
-					timestamp: new Date().toISOString()
-				}];
+				logFn.info(
+					`performResearch (direct): Entering saveToFile block. options.saveToFile: ${options.saveToFile}, researchResult is not null.`
+				);
+				const conversationHistoryForFileSave = [
+					{
+						// Use a distinct name
+						question: query,
+						answer: researchResult,
+						type: 'initial',
+						timestamp: new Date().toISOString()
+					}
+				];
 				try {
 					finalSavedFilePath = await handleSaveToFile(
 						conversationHistoryForFileSave,
@@ -380,59 +415,112 @@ async function performResearch(
 						context,
 						logFn
 					);
-					logFn.info(`performResearch (direct): Saved to file: ${finalSavedFilePath}`);
+					logFn.info(
+						`performResearch (direct): Saved to file: ${finalSavedFilePath}`
+					);
 				} catch (fileSaveError) {
-					logFn.error(`performResearch (direct): Error during saveToFile: ${fileSaveError.message}`);
+					logFn.error(
+						`performResearch (direct): Error during saveToFile: ${fileSaveError.message}`
+					);
 				}
 			} else {
-				logFn.info(`performResearch (direct): Skipping saveToFile. options.saveToFile: ${options.saveToFile}, researchResult is null? ${researchResult == null}`);
+				logFn.info(
+					`performResearch (direct): Skipping saveToFile. options.saveToFile: ${options.saveToFile}, researchResult is null? ${researchResult == null}`
+				);
 			}
 
 			// Handle saving to task/subtask if options.saveTo is provided
-			if (options.saveTo && researchResult != null) { 
-				logFn.info(`performResearch (direct): Entering saveTo block for task ID '${options.saveTo}'. researchResult is not null.`);
+			if (options.saveTo && researchResult != null) {
+				logFn.info(
+					`performResearch (direct): Entering saveTo block for task ID '${options.saveTo}'. researchResult is not null.`
+				);
 				try {
 					const isSubtaskForSave = String(options.saveTo).includes('.');
 					let researchContentToAppend = `## Research Query: ${query.trim()}\n\n`;
-					if (detailLevel) researchContentToAppend += `**Detail Level:** ${detailLevel}\n`;
-					if (gatheredContext?.length) researchContentToAppend += `**Context Size:** ${gatheredContext.length} characters\n`;
+					if (detailLevel)
+						researchContentToAppend += `**Detail Level:** ${detailLevel}\n`;
+					if (gatheredContext?.length)
+						researchContentToAppend += `**Context Size:** ${gatheredContext.length} characters\n`;
 					researchContentToAppend += `**Timestamp:** ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}\n\n`;
-					researchContentToAppend += `### Results\n\n${researchResult}`; 
+					researchContentToAppend += `### Results\n\n${researchResult}`;
 
-					logFn.debug(`performResearch: researchContentToAppend for saveTo: ${researchContentToAppend.substring(0,200)}...`);
-					const tasksPathForSave = path.join(projectRoot, '.taskmaster', 'tasks', 'tasks.json');
-					logFn.debug(`performResearch: tasksPathForSave for saveTo: ${tasksPathForSave}`);
+					logFn.debug(
+						`performResearch: researchContentToAppend for saveTo: ${researchContentToAppend.substring(0, 200)}...`
+					);
+					const tasksPathForSave = path.join(
+						projectRoot,
+						'.taskmaster',
+						'tasks',
+						'tasks.json'
+					);
+					logFn.debug(
+						`performResearch: tasksPathForSave for saveTo: ${tasksPathForSave}`
+					);
 
 					const internalUpdateContextForSave = {
-						session: context.session, mcpLog: logFn, commandName: `research-saveTo-${isSubtaskForSave ? 'subtask' : 'task'}`,
-						outputType: context.outputType, projectRoot: projectRoot, tag: context.tag
+						session: context.session,
+						mcpLog: logFn,
+						commandName: `research-saveTo-${isSubtaskForSave ? 'subtask' : 'task'}`,
+						outputType: context.outputType,
+						projectRoot: projectRoot,
+						tag: context.tag
 					};
-					logFn.debug(`performResearch: internalUpdateContextForSave for saveTo: ${JSON.stringify(internalUpdateContextForSave)}`);
+					logFn.debug(
+						`performResearch: internalUpdateContextForSave for saveTo: ${JSON.stringify(internalUpdateContextForSave)}`
+					);
 
 					if (isSubtaskForSave) {
-						logFn.info(`performResearch: Attempting to save to subtask ${options.saveTo}.`);
-						const { updateSubtaskById } = await import('./update-subtask-by-id.js');
-						await updateSubtaskById(tasksPathForSave, options.saveTo, researchContentToAppend, false, internalUpdateContextForSave, 'json');
+						logFn.info(
+							`performResearch: Attempting to save to subtask ${options.saveTo}.`
+						);
+						const { updateSubtaskById } = await import(
+							'./update-subtask-by-id.js'
+						);
+						await updateSubtaskById(
+							tasksPathForSave,
+							options.saveTo,
+							researchContentToAppend,
+							false,
+							internalUpdateContextForSave,
+							'json'
+						);
 					} else {
-						logFn.info(`performResearch: Attempting to save to task ${options.saveTo}.`);
-						const updateTaskById = (await import('./update-task-by-id.js')).default;
+						logFn.info(
+							`performResearch: Attempting to save to task ${options.saveTo}.`
+						);
+						const updateTaskById = (await import('./update-task-by-id.js'))
+							.default;
 						const taskIdNumToSave = parseInt(options.saveTo, 10);
-						await updateTaskById(tasksPathForSave, taskIdNumToSave, researchContentToAppend, false, internalUpdateContextForSave, 'json', true);
+						await updateTaskById(
+							tasksPathForSave,
+							taskIdNumToSave,
+							researchContentToAppend,
+							false,
+							internalUpdateContextForSave,
+							'json',
+							true
+						);
 					}
-					logFn.info(`performResearch: Research successfully saved to task/subtask ${options.saveTo}.`);
+					logFn.info(
+						`performResearch: Research successfully saved to task/subtask ${options.saveTo}.`
+					);
 				} catch (saveError) {
-					logFn.error(`performResearch: Error saving research to task/subtask ${options.saveTo}: ${saveError.message}`);
+					logFn.error(
+						`performResearch: Error saving research to task/subtask ${options.saveTo}: ${saveError.message}`
+					);
 					logFn.error(`performResearch: Save error stack: ${saveError.stack}`);
 				}
 			} else {
-				logFn.info(`performResearch (direct): Skipping saveTo. options.saveTo: ${options.saveTo}, researchResult is null? ${researchResult == null}`);
+				logFn.info(
+					`performResearch (direct): Skipping saveTo. options.saveTo: ${options.saveTo}, researchResult is null? ${researchResult == null}`
+				);
 			}
 		}
 
-	// This log was here before the save logic conditional, should remain outside
-	logFn.success('performResearch: Main logic completed successfully.');
-	// Final return structure
-	return {
+		// This log was here before the save logic conditional, should remain outside
+		logFn.success('performResearch: Main logic completed successfully.');
+		// Final return structure
+		return {
 			query,
 			result: researchResult,
 			contextSize: gatheredContext.length,
@@ -770,7 +858,9 @@ async function handleFollowUpQuestions(
 		// Import required modules for saving, renaming to avoid conflict in this scope
 		const { readJSON: cliReadJSON } = await import('../utils.js');
 		const updateTaskByIdCLI = (await import('./update-task-by-id.js')).default;
-		const { updateSubtaskById: updateSubtaskByIdCLI } = await import('./update-subtask-by-id.js');
+		const { updateSubtaskById: updateSubtaskByIdCLI } = await import(
+			'./update-subtask-by-id.js'
+		);
 
 		// Initialize conversation history with the initial Q&A
 		const conversationHistory = [
@@ -805,7 +895,7 @@ async function handleFollowUpQuestions(
 
 			if (action === 'savefile') {
 				// Handle save to file functionality
-				await handleSaveToFile( 
+				await handleSaveToFile(
 					conversationHistory,
 					projectRoot,
 					context, // Pass the original context
@@ -820,10 +910,10 @@ async function handleFollowUpQuestions(
 					conversationHistory,
 					projectRoot,
 					context, // Pass the original context
-					logFn,   // Pass the original logFn
-					cliReadJSON, 
-					updateTaskByIdCLI, 
-					updateSubtaskByIdCLI 
+					logFn, // Pass the original logFn
+					cliReadJSON,
+					updateTaskByIdCLI,
+					updateSubtaskByIdCLI
 				);
 				if (saveResult) {
 					interactiveSaveOccurred = true;
@@ -861,7 +951,7 @@ async function handleFollowUpQuestions(
 				// Ensure originalOptions.customContext is handled correctly
 				const followUpOptions = {
 					...originalOptions, // Spread all original options
-					taskIds: [], 
+					taskIds: [],
 					customContext:
 						conversationContext +
 						(originalOptions.customContext // Check originalOptions directly
@@ -912,10 +1002,10 @@ async function handleSaveToTask(
 	conversationHistory,
 	projectRoot,
 	context, // Original context from performResearch
-	logFn,   // Original logFn from performResearch
-	cliReadJSON, 
-	updateTaskByIdCLI, 
-	updateSubtaskByIdCLI 
+	logFn, // Original logFn from performResearch
+	cliReadJSON,
+	updateTaskByIdCLI,
+	updateSubtaskByIdCLI
 ) {
 	try {
 		// Get task ID from user
@@ -940,37 +1030,46 @@ async function handleSaveToTask(
 		const trimmedTaskId = taskId.trim();
 		const conversationThread = formatConversationForSaving(conversationHistory);
 		const isSubtask = trimmedTaskId.includes('.');
-		const tasksPathForSave = path.join(projectRoot, '.taskmaster', 'tasks', 'tasks.json');
+		const tasksPathForSave = path.join(
+			projectRoot,
+			'.taskmaster',
+			'tasks',
+			'tasks.json'
+		);
 
 		if (!fs.existsSync(tasksPathForSave)) {
 			console.log(
 				chalk.red('❌ Tasks file not found. Please run task-master init first.')
 			);
-			return false; 
+			return false;
 		}
 
-		const { getCurrentTag: cliGetCurrentTag } = await import('../utils.js'); 
-		const tagToUse = context.tag || cliGetCurrentTag(projectRoot) || 'master'; 
-		const data = cliReadJSON(tasksPathForSave, projectRoot, tagToUse); 
+		const { getCurrentTag: cliGetCurrentTag } = await import('../utils.js');
+		const tagToUse = context.tag || cliGetCurrentTag(projectRoot) || 'master';
+		const data = cliReadJSON(tasksPathForSave, projectRoot, tagToUse);
 
 		if (!data || !data.tasks) {
 			console.log(chalk.red('❌ No valid tasks found.'));
-			return false; 
+			return false;
 		}
 
 		let taskExistsCheck = false;
 		if (isSubtask) {
 			const [parentId, subId] = trimmedTaskId
 				.split('.')
-				.map(id => parseInt(id, 10));
-			const parent = data.tasks.find(t => t.id === parentId);
-			if (parent && parent.subtasks && parent.subtasks.find(st => st.id === subId)) {
+				.map((id) => parseInt(id, 10));
+			const parent = data.tasks.find((t) => t.id === parentId);
+			if (
+				parent &&
+				parent.subtasks &&
+				parent.subtasks.find((st) => st.id === subId)
+			) {
 				taskExistsCheck = true;
 			} else {
 				console.log(chalk.red(`❌ Subtask ${trimmedTaskId} not found.`));
 			}
 		} else {
-			if (data.tasks.find(t => t.id === parseInt(trimmedTaskId, 10))) {
+			if (data.tasks.find((t) => t.id === parseInt(trimmedTaskId, 10))) {
 				taskExistsCheck = true;
 			} else {
 				console.log(chalk.red(`❌ Task ${trimmedTaskId} not found.`));
@@ -978,46 +1077,52 @@ async function handleSaveToTask(
 		}
 
 		if (!taskExistsCheck) {
-			return false; 
+			return false;
 		}
 
-		console.log(chalk.blue(`💾 Saving research conversation to ${isSubtask ? 'subtask' : 'task'}...`));
-		
+		console.log(
+			chalk.blue(
+				`💾 Saving research conversation to ${isSubtask ? 'subtask' : 'task'}...`
+			)
+		);
+
 		const updateContext = {
-			...context, 
+			...context,
 			tag: tagToUse,
-			mcpLog: logFn, 
-			projectRoot: projectRoot 
+			mcpLog: logFn,
+			projectRoot: projectRoot
 		};
 
 		if (isSubtask) {
-			await updateSubtaskByIdCLI( 
+			await updateSubtaskByIdCLI(
 				tasksPathForSave,
 				trimmedTaskId,
 				conversationThread,
-				false, 
-				updateContext, 
-				'text' 
+				false,
+				updateContext,
+				'text'
 			);
 		} else {
-			await updateTaskByIdCLI( 
+			await updateTaskByIdCLI(
 				tasksPathForSave,
 				parseInt(trimmedTaskId, 10),
 				conversationThread,
-				false, 
-				updateContext, 
-				'text', 
-				true 
+				false,
+				updateContext,
+				'text',
+				true
 			);
 		}
 		console.log(
-			chalk.green(`✅ Research conversation saved to ${isSubtask ? 'subtask' : 'task'} ${trimmedTaskId}`)
+			chalk.green(
+				`✅ Research conversation saved to ${isSubtask ? 'subtask' : 'task'} ${trimmedTaskId}`
+			)
 		);
-		return true; 
+		return true;
 	} catch (error) {
 		console.log(chalk.red(`❌ Error saving conversation: ${error.message}`));
-		logFn.error(`Error saving conversation: ${error.message}`); 
-		return false; 
+		logFn.error(`Error saving conversation: ${error.message}`);
+		return false;
 	}
 }
 
@@ -1032,8 +1137,8 @@ async function handleSaveToTask(
 async function handleSaveToFile(
 	conversationHistory,
 	projectRoot,
-	context, 
-	logFn    
+	context,
+	logFn
 ) {
 	try {
 		const researchDir = path.join(
@@ -1047,7 +1152,7 @@ async function handleSaveToFile(
 		}
 
 		const firstQuery = conversationHistory[0]?.question || 'research-query';
-		const timestamp = new Date().toISOString().split('T')[0]; 
+		const timestamp = new Date().toISOString().split('T')[0];
 
 		const querySlug = firstQuery
 			.toLowerCase()
@@ -1068,7 +1173,7 @@ async function handleSaveToFile(
 		fs.writeFileSync(filePath, fileContent, 'utf8');
 
 		const relativePath = path.relative(projectRoot, filePath);
-		
+
 		// Only log to console if it's a CLI output type (interactive or direct CLI call)
 		if (context.outputType === 'cli') {
 			console.log(
@@ -1078,13 +1183,13 @@ async function handleSaveToFile(
 		// Always log to the main logger
 		logFn.success(`Research conversation saved to ${relativePath}`);
 
-		return filePath; 
+		return filePath;
 	} catch (error) {
 		if (context.outputType === 'cli') {
 			console.log(chalk.red(`❌ Error saving research file: ${error.message}`));
 		}
-		logFn.error(`Error saving research file: ${error.message}`); 
-		throw error; 
+		logFn.error(`Error saving research file: ${error.message}`);
+		throw error;
 	}
 }
 

@@ -104,7 +104,10 @@ describe('MCP Configuration Validation', () => {
 					expect(profile.mcpConfigName).toMatch(/^[\w_.-]+$/); // Basic filename check
 
 					// Check 3: mcpConfigPath is correctly formed from profileDir and mcpConfigName
-					const expectedConfigPath = path.join(profile.profileDir, profile.mcpConfigName);
+					const expectedConfigPath = path.join(
+						profile.profileDir,
+						profile.mcpConfigName
+					);
 					expect(profile.mcpConfigPath).toBe(expectedConfigPath);
 				}
 			});
@@ -220,9 +223,11 @@ describe('MCP Configuration Validation', () => {
 					// Check if it contains a path separator, rather than specifically '/'
 					expect(profile.mcpConfigPath).toMatch(new RegExp(`\\${path.sep}`));
 
-
 					// Verify it matches the expected pattern: profileDir/configName
-					const expectedPath = path.join(profile.profileDir, profile.mcpConfigName);
+					const expectedPath = path.join(
+						profile.profileDir,
+						profile.mcpConfigName
+					);
 					expect(profile.mcpConfigPath).toBe(expectedPath);
 				}
 			});
@@ -237,7 +242,11 @@ describe('MCP Configuration Validation', () => {
 					// For this test, we're verifying that path.join(root, relativePath) works as expected.
 					const testProjectRoot = 'test_project_root_dir'; // A simple relative root
 					const fullPath = path.join(testProjectRoot, profile.mcpConfigPath);
-					const expectedFullPath = path.join(testProjectRoot, profile.profileDir, profile.mcpConfigName);
+					const expectedFullPath = path.join(
+						testProjectRoot,
+						profile.profileDir,
+						profile.mcpConfigName
+					);
 
 					// Should result in a proper path
 					expect(fullPath).toBe(expectedFullPath);
@@ -262,7 +271,10 @@ describe('MCP Configuration Validation', () => {
 
 					// Verify the path structure is correct for the new function signature
 					// It should be equivalent to path.join(profileDir, mcpConfigName)
-					const expectedStructure = path.join(profile.profileDir, profile.mcpConfigName);
+					const expectedStructure = path.join(
+						profile.profileDir,
+						profile.mcpConfigName
+					);
 					expect(profile.mcpConfigPath).toBe(expectedStructure);
 				}
 			});

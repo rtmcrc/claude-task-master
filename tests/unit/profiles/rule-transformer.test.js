@@ -171,8 +171,11 @@ describe('Rule Transformer - General', () => {
 				expect(typeof profileConfig.mcpConfigPath).toBe('string');
 
 				// Check that mcpConfigPath is properly constructed
-							const expectedMcpPath = path.join(profileConfig.profileDir, profileConfig.mcpConfigName);
-							expect(profileConfig.mcpConfigPath).toBe(expectedMcpPath);
+				const expectedMcpPath = path.join(
+					profileConfig.profileDir,
+					profileConfig.mcpConfigName
+				);
+				expect(profileConfig.mcpConfigPath).toBe(expectedMcpPath);
 			});
 		});
 
@@ -266,10 +269,15 @@ describe('Rule Transformer - General', () => {
 
 				// The mcpConfigPath should start with the profileDir
 				// Escape profileDir for regex characters
-				const escapedProfileDir = profileConfig.profileDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+				const escapedProfileDir = profileConfig.profileDir.replace(
+					/[.*+?^${}()|[\]\\]/g,
+					'\\$&'
+				);
 				// Escape path.sep for regex characters (e.g., '\' needs to be '\\')
 				const escapedPathSep = path.sep.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-				const startsWithProfileDirRegex = new RegExp(`^${escapedProfileDir}${escapedPathSep}`);
+				const startsWithProfileDirRegex = new RegExp(
+					`^${escapedProfileDir}${escapedPathSep}`
+				);
 				expect(profileConfig.mcpConfigPath).toMatch(startsWithProfileDirRegex);
 
 				// The mcpConfigPath should end with the mcpConfigName

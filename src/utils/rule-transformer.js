@@ -377,17 +377,22 @@ export function removeProfileRules(projectRoot, profile) {
 						}
 					} else if (stat.isFile()) {
 						// Normalize relativeItemPath to use forward slashes for comparison with taskmasterFiles
-						const normalizedRelativeItemPath = relativeItemPath.replace(/\\/g, '/');
-						
+						const normalizedRelativeItemPath = relativeItemPath.replace(
+							/\\/g,
+							'/'
+						);
+
 						// Find the original fileMap value that matches the current file
 						// taskmasterFiles contains values from profile.fileMap, which use forward slashes
-						const matchedFileMapValue = taskmasterFiles.find(fmv => fmv === normalizedRelativeItemPath);
+						const matchedFileMapValue = taskmasterFiles.find(
+							(fmv) => fmv === normalizedRelativeItemPath
+						);
 
 						if (matchedFileMapValue) {
 							// This is a Task Master file, remove it
 							fs.rmSync(itemPath, { force: true });
 							// Push the original fileMap value (which uses forward slashes)
-							removedFiles.push(matchedFileMapValue); 
+							removedFiles.push(matchedFileMapValue);
 							log(
 								'debug',
 								`[Rule Transformer] Removed Task Master file: ${matchedFileMapValue}`
