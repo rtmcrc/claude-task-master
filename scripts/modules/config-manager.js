@@ -592,6 +592,7 @@ function isApiKeySet(providerName, session = null, projectRoot = null) {
 	const providersWithoutApiKeys = [
 		CUSTOM_PROVIDERS.OLLAMA,
 		CUSTOM_PROVIDERS.BEDROCK,
+		CUSTOM_PROVIDERS.MCP,
 		CUSTOM_PROVIDERS.GEMINI_CLI
 	];
 
@@ -898,7 +899,8 @@ function getBaseUrlForRole(role, explicitRoot = null) {
 export const providersWithoutApiKeys = [
 	CUSTOM_PROVIDERS.OLLAMA,
 	CUSTOM_PROVIDERS.BEDROCK,
-	CUSTOM_PROVIDERS.GEMINI_CLI
+	CUSTOM_PROVIDERS.GEMINI_CLI,
+	CUSTOM_PROVIDERS.MCP
 ];
 
 export {

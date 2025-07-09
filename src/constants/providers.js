@@ -10,6 +10,7 @@ export const VALIDATED_PROVIDERS = [
 	'google',
 	'perplexity',
 	'xai',
+	'groq',
 	'mistral'
 ];
 
@@ -22,7 +23,8 @@ export const CUSTOM_PROVIDERS = {
 	OLLAMA: 'ollama',
 	CLAUDE_CODE: 'claude-code',
 	GEMINI_CLI: 'gemini-cli',
-	REQUESTY: 'requesty'
+	REQUESTY: 'requesty',
+	MCP: 'mcp'
 };
 
 // Custom providers array (for backward compatibility and iteration)
