@@ -9,7 +9,7 @@ alwaysApply: true
 ---
 # How to Handle agent_llm Interactions
 
-The `agent_llm` tool is used for managing delegated LLM calls between the Taskmaster server and the agent (you). When a Taskmaster tool (like `parse_prd`, `analyze_project_complexity`, `expand_task`, `expand_all`, `update`, `update_task`, `update_subtask`, `add_task`, `research`) requires an LLM call, Taskmaster delegates this call to the agent using the `agent_llm` mechanism.
+The `agent_llm` tool is used for managing delegated LLM calls between the Taskmaster server and the agent (you). When a Taskmaster tool (like `parse_prd`, `analyze_project_complexity`, `expand_task`, `expand_all`, `update`, `update_task`, `update_subtask`, `add_task`, `research`) requires an LLM call, Taskmaster delegates this call to the agent (you) using the `agent_llm` mechanism.
 
 ## File Path Rules
 
@@ -40,7 +40,8 @@ Upon receiving a pending-interaction with `delegatedCallDetails`, you (the agent
 
 After performing the LLM call (or determining it cannot be performed due to an error), you must use the `use_mcp_tool` with `server_name: "taskmaster-ai"` and `tool_name: "agent_llm"` to send the result back to Taskmaster.
 
-There is no need to use `get_tasks` tool  before `expand_all`.
+Do not initialize the project if you are not asked to do so.
+Do not use `get_tasks` tool  before `expand_all`.
 **Note on `expand_all`:** The `expand_all` tool returns the list of `delegatedTaskIds` and you have to expand tasks one by one using `expand_task` tool.
 **Note on `research`:** When a research is made for a specific task always use `saveTo` unless user explicitly asks you not to save the result.
 
