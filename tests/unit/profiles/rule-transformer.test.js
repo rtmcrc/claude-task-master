@@ -104,7 +104,7 @@ describe('Rule Transformer - General', () => {
 
 		it('should have valid fileMap with required files for each profile', () => {
 			const expectedFiles = [
-				'agent_llm.mdc',
+				'agentllm.mdc',
 				'cursor_rules.mdc',
 				'dev_workflow.mdc',
 				'self_improve.mdc',

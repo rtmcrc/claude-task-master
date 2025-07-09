@@ -54,7 +54,7 @@ export function createProfile(editorConfig) {
 		'dev_workflow.mdc': `${taskmasterPrefix}dev_workflow${targetExtension}`,
 		'self_improve.mdc': `self_improve${targetExtension}`,
 		'taskmaster.mdc': `${taskmasterPrefix}taskmaster${targetExtension}`,
-		'agent_llm.mdc': `${taskmasterPrefix}agent_llm${targetExtension}`
+		'agentllm.mdc': `${taskmasterPrefix}agent_llm${targetExtension}`
 	};
 
 	const fileMap = { ...defaultFileMap, ...customFileMap };
