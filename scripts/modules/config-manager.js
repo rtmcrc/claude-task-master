@@ -711,6 +711,10 @@ function getMcpApiKeyStatus(providerName, projectRoot = null) {
 				apiKeyToCheck = mcpEnv.AZURE_OPENAI_API_KEY;
 				placeholderValue = 'YOUR_AZURE_OPENAI_API_KEY_HERE';
 				break;
+			case 'requesty':
+				apiKeyToCheck = mcpEnv.REQUESTY_API_KEY;
+				placeholderValue = 'YOUR_REQUESTY_API_KEY_HERE';
+				break;
 			case 'vertex':
 				apiKeyToCheck = mcpEnv.GOOGLE_API_KEY; // Vertex uses Google API key
 				placeholderValue = 'YOUR_GOOGLE_API_KEY_HERE';

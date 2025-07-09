@@ -505,6 +505,7 @@ async function _unifiedServiceRunner(serviceType, params) {
 
 			// Get AI parameters for the current role
 			roleParams = getParametersForRole(currentRole, effectiveProjectRoot);
+			baseURL = getBaseUrlForRole(currentRole, effectiveProjectRoot);
 			apiKey = _resolveApiKey(
 				providerName?.toLowerCase(),
 				session,
