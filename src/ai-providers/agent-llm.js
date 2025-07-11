@@ -17,6 +17,16 @@ class AgentLLMProvider extends BaseAIProvider {
 		return this;
 	}
 
+	isRequiredApiKey() {
+		// AgentLLM does not use traditional API keys
+		return false;
+	}
+
+	getRequiredApiKeyName() {
+		// AgentLLM does not use traditional API keys
+		return null;
+	}
+
 	generateText(params) {
 		const { modelId, messages, maxTokens, temperature, ...restApiParams } =
 			params;

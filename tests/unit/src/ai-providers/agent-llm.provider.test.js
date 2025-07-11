@@ -21,6 +21,14 @@ describe('AgentLLMProvider', () => {
 		expect(provider.getClient({})).toBe(provider);
 	});
 
+		test('isRequiredApiKey should return false', () => {
+		expect(provider.isRequiredApiKey()).toBe(false);
+	});
+
+	test('getRequiredApiKeyName should return null', () => {
+		expect(provider.getRequiredApiKeyName()).toBeNull();
+	});
+
 	describe('generateText', () => {
 		test('should return agent_llm_delegation with interactionId and details', async () => {
 			const params = {
