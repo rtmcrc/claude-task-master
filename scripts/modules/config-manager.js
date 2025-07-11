@@ -592,8 +592,9 @@ function isApiKeySet(providerName, session = null, projectRoot = null) {
 	const providersWithoutApiKeys = [
 		CUSTOM_PROVIDERS.OLLAMA,
 		CUSTOM_PROVIDERS.BEDROCK,
-		CUSTOM_PROVIDERS.GEMINI_CLI,
-		CUSTOM_PROVIDERS.AGENTLLM
+		CUSTOM_PROVIDERS.AGENTLLM,
+		CUSTOM_PROVIDERS.MCP,
+		CUSTOM_PROVIDERS.GEMINI_CLI
 	];
 
 	if (providersWithoutApiKeys.includes(providerName?.toLowerCase())) {
@@ -895,7 +896,8 @@ export const providersWithoutApiKeys = [
 	CUSTOM_PROVIDERS.OLLAMA,
 	CUSTOM_PROVIDERS.BEDROCK,
 	CUSTOM_PROVIDERS.GEMINI_CLI,
-	CUSTOM_PROVIDERS.AGENTLLM
+	CUSTOM_PROVIDERS.AGENTLLM,
+	CUSTOM_PROVIDERS.MCP
 ];
 
 export {
