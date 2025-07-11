@@ -2,6 +2,9 @@ import { RULE_PROFILES } from '../../../src/constants/profiles.js';
 import { getRulesProfile } from '../../../src/utils/rule-transformer.js';
 import path from 'path';
 
+// Helper function to normalize path separators to forward slashes for comparison
+const normalizePath = (p) => (p ? p.replace(/\\/g, '/') : p);
+
 describe('MCP Configuration Validation', () => {
 	describe('Profile MCP Configuration Properties', () => {
 		// Define base configurations
@@ -52,7 +55,9 @@ describe('MCP Configuration Validation', () => {
 		).reduce((acc, [profileName, config]) => {
 			acc[profileName] = {
 				...config,
-				expectedPath: path.join(config.expectedDir, config.expectedConfigName)
+				expectedPath:config.expectedConfigName
+					? path.join(config.expectedDir, config.expectedConfigName)
+					: null
 			};
 			return acc;
 		}, {});
@@ -65,7 +70,7 @@ describe('MCP Configuration Validation', () => {
 					expect(profile.mcpConfig).toBe(expected.shouldHaveMcp);
 					expect(profile.profileDir).toBe(expected.expectedDir);
 					expect(profile.mcpConfigName).toBe(expected.expectedConfigName);
-					expect(profile.mcpConfigPath).toBe(expected.expectedPath);
+					expect(normalizePath(profile.mcpConfigPath)).toBe(normalizePath(expected.expectedPath));
 				});
 			}
 		);
@@ -80,7 +85,7 @@ describe('MCP Configuration Validation', () => {
 						profile.profileDir,
 						profile.mcpConfigName
 					);
-					expect(profile.mcpConfigPath).toBe(expectedPath);
+					expect(normalizePath(profile.mcpConfigPath)).toBe(normalizePath(expectedPath));
 				}
 			});
 		});
@@ -115,7 +120,7 @@ describe('MCP Configuration Validation', () => {
 						profile.profileDir,
 						profile.mcpConfigName
 					);
-					expect(profile.mcpConfigPath).toBe(expectedConfigPath);
+					expect(normalizePath(profile.mcpConfigPath)).toBe(normalizePath(expectedConfigPath));
 				}
 			});
 		});
@@ -244,16 +249,16 @@ describe('MCP Configuration Validation', () => {
 				const profile = getRulesProfile(profileName);
 				if (profile.mcpConfig !== false) {
 					// Verify the path is properly formatted for path.join usage
-					expect(profile.mcpConfigPath.startsWith(path.sep)).toBe(false); // It's a relative path
-					// Check if it contains a path separator, rather than specifically '/'
-					expect(profile.mcpConfigPath).toMatch(new RegExp(`\\${path.sep}`));
+					expect(normalizePath(profile.mcpConfigPath).startsWith('/')).toBe(false); // It's a relative path (after normalization)
+					// Check if it contains a forward slash, as paths are normalized
+					expect(normalizePath(profile.mcpConfigPath)).toMatch(/\//);
 
 					// Verify it matches the expected pattern: profileDir/configName
 					const expectedPath = path.join(
 						profile.profileDir,
 						profile.mcpConfigName
 					);
-					expect(profile.mcpConfigPath).toBe(expectedPath);
+					expect(normalizePath(profile.mcpConfigPath)).toBe(normalizePath(expectedPath));
 				}
 			});
 		});
@@ -266,6 +271,7 @@ describe('MCP Configuration Validation', () => {
 					// Use an OS-neutral root for testing purposes if possible, or accept that results vary.
 					// For this test, we're verifying that path.join(root, relativePath) works as expected.
 					const testProjectRoot = 'test_project_root_dir'; // A simple relative root
+					// Since profile.mcpConfigPath is always using '/', path.join will handle it correctly.
 					const fullPath = path.join(testProjectRoot, profile.mcpConfigPath);
 					const expectedFullPath = path.join(
 						testProjectRoot,
@@ -274,7 +280,7 @@ describe('MCP Configuration Validation', () => {
 					);
 
 					// Should result in a proper path
-					expect(fullPath).toBe(expectedFullPath);
+					expect(normalizePath(fullPath)).toBe(normalizePath(expectedFullPath));
 					// These assertions are implicitly covered by the above if profile.mcpConfigPath is correct
 					// expect(fullPath).toContain(profile.profileDir);
 					// expect(fullPath).toContain(profile.mcpConfigName);
@@ -300,7 +306,7 @@ describe('MCP Configuration Validation', () => {
 						profile.profileDir,
 						profile.mcpConfigName
 					);
-					expect(profile.mcpConfigPath).toBe(expectedStructure);
+					expect(normalizePath(profile.mcpConfigPath)).toBe(normalizePath(expectedStructure));
 				}
 			});
 		});
