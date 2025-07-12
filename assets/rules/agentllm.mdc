@@ -14,7 +14,7 @@ The `agent_llm` tool is used for managing delegated LLM calls between the Taskma
 ## File Path Rules
 
 - **Use `.taskmaster/tasks/tasks.json` as the tasks file path for all Taskmaster tool calls.**
-- **When updating, reading, or writing tasks, always set the file parameter to `.taskmaster/tasks/tasks.json`, unless the user explicitly specifies a different path.**
+- **When updating, reading, or writing tasks, always set the `file` parameter to `.taskmaster/tasks/tasks.json`, unless the user explicitly specifies a different path.**
 
 ## 1. Receiving a Delegated LLM Call
 
@@ -51,5 +51,5 @@ Your arguments for the `agent_llm` tool must include:
 - **interactionId**: The interactionId received in the pending-interaction.
 - **agentLLMResponse**: An object containing the outcome of the LLM call:
   - **status**: Set to `"success"` if the LLM call was successful, or `"error"` if it failed.
-  - **data**: If status is `"success"`, this field should contain the actual LLM response (e.g., the parsed JSON object for `generateObject` calls, or text for `generateText` calls).
+  - **data**: If status is `"success"`, this field should contain the actual LLM response. When the `originalCommand` is `parse-prd`, the data should be a JSON object with two keys: `tasks` (an array of task objects) and `metadata` (an object with metadata about the parsing). For other `generateObject` calls, it will be the parsed JSON object. For `generateText` calls, it will be the generated text.
   - **errorDetails**: If status is `"error"`, this field should contain details about the error, including a message and optionally a code.
