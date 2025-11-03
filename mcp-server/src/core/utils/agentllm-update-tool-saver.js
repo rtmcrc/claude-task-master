@@ -20,6 +20,13 @@ class UpdateToolSaver extends AgentLLMToolSaver {
 				.trim()
 				.replace(/```(?:json)?\n?([\s\S]*?)```/gi, '$1')
 				.trim();
+
+			// Optional: normalize logger methods to no-ops for cleaner debug usage
+			// Avoid guarded calls by binding fallbacks once.
+			const dbg =
+				logWrapper && typeof logWrapper.debug === 'function'
+					? logWrapper.debug.bind(logWrapper)
+					: () => {};
 			if (/^".*"$/s.test(s) || /^'.*'$/s.test(s)) {
 				s = s
 					.slice(1, -1)
@@ -35,10 +42,7 @@ class UpdateToolSaver extends AgentLLMToolSaver {
 				if (parsed && typeof parsed.id !== 'undefined')
 					return { success: true, data: [parsed] };
 			} catch (e) {
-				logWrapper.debug &&
-					logWrapper.debug(
-						`${this.toolName}: Direct JSON.parse failed: ${e.message}`
-					);
+				dbg(`${this.toolName}: Direct JSON.parse failed: ${e.message}`);
 			}
 			const firstArrayStart = s.indexOf('[');
 			const lastArrayEnd = s.lastIndexOf(']');
@@ -52,10 +56,7 @@ class UpdateToolSaver extends AgentLLMToolSaver {
 					const parsed = JSON.parse(sub);
 					if (Array.isArray(parsed)) return { success: true, data: parsed };
 				} catch (e) {
-					logWrapper.debug &&
-						logWrapper.debug(
-							`${this.toolName}: Substring array parse failed: ${e.message}`
-						);
+					dbg(`${this.toolName}: Substring array parse failed: ${e.message}`);
 				}
 			}
 			const firstObjStart = s.indexOf('{');
@@ -74,10 +75,7 @@ class UpdateToolSaver extends AgentLLMToolSaver {
 					if (parsed && typeof parsed.id !== 'undefined')
 						return { success: true, data: [parsed] };
 				} catch (e) {
-					logWrapper.debug &&
-						logWrapper.debug(
-							`${this.toolName}: Substring object parse failed: ${e.message}`
-						);
+					dbg(`${this.toolName}: Substring object parse failed: ${e.message}`);
 				}
 			}
 		}
@@ -164,12 +162,17 @@ class UpdateToolSaver extends AgentLLMToolSaver {
 							);
 							const deepEqual = (a, b) => {
 								if (a === b) return true;
-								if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
-								const ka = Object.keys(a), kb = Object.keys(b);
+								if (!a || !b || typeof a !== 'object' || typeof b !== 'object')
+									return false;
+								const ka = Object.keys(a),
+									kb = Object.keys(b);
 								if (ka.length !== kb.length) return false;
 								return ka.every((k) => deepEqual(a[k], b[k]));
 							};
-                if (!updatedVersionInAgentTask || !deepEqual(updatedVersionInAgentTask, compSub)) {
+							if (
+								!updatedVersionInAgentTask ||
+								!deepEqual(updatedVersionInAgentTask, compSub)
+							) {
 								logWrapper.warn(
 									`${this.toolName}: Restoring completed subtask ${originalTask.id}.${compSub.id} as agent modified/removed it.`
 								);

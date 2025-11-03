@@ -237,7 +237,7 @@ async function performResearch(
 
 		// Only log detailed info in debug mode or MCP
 		if (outputFormat !== 'text') {
-			logFn.info(
+			logFn.debug(
 				`Calling AI service with research role, context size: ${tokenBreakdown.total} tokens (${gatheredContext.length} characters)`
 			);
 		}
@@ -314,7 +314,7 @@ async function performResearch(
 		const telemetryData = aiResult.telemetryData; // Should be null if agent_llm, populated otherwise
 		const tagInfo = aiResult.tagInfo; // Should always be populated
 
-		logFn.info(
+		logFn.debug(
 			`performResearch: researchResult (from agent or direct LLM): ${typeof researchResult === 'string' ? researchResult.substring(0, 100) + '...' : JSON.stringify(researchResult)}`
 		);
 		logFn.debug(
@@ -443,7 +443,9 @@ async function performResearch(
 						logFn.info(
 							`performResearch: Attempting to save to subtask ${options.saveTo}.`
 						);
-						const updateSubtaskById = (await import('./update-subtask-by-id.js')).default;
+						const updateSubtaskById = (
+							await import('./update-subtask-by-id.js')
+						).default;
 						await updateSubtaskById(
 							tasksPath,
 							options.saveTo,
@@ -891,8 +893,8 @@ async function handleSaveToTask(
 						return 'Please enter a task ID.';
 					}
 					const trimmedInput = input.trim();
-					if (!/^\d+(\.\d+)*$/.test(trimmedInput)) {
-						return 'Invalid format. Use "15" for a task or "15.1", "15.1.1" etc. for subtasks.';
+					if (!/^\d+(?:\.\d+)?$/.test(trimmedInput)) {
+						return 'Invalid format. Use "15" for a task or "15.1" for single-level subtasks.';
 					}
 					return true;
 				}
@@ -1008,8 +1010,8 @@ async function handleSaveToFile(
 
 		const firstQuery = conversationHistory[0]?.question || 'research-query';
 		const now = new Date();
-        const datePart = now.toISOString().split('T')[0];
-        const timePart = `${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}${now.getSeconds().toString().padStart(2,'0')}`;
+		const datePart = now.toISOString().split('T')[0];
+		const timePart = `${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
 
 		const querySlug = firstQuery
 			.toLowerCase()
